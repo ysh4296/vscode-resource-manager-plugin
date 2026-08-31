@@ -1,17 +1,15 @@
 import * as semver from "semver";
 import { encodeProjectId, getPaginated } from "./client";
-import { GitLabConfig, GitLabPackage, PackageVersionInfo } from "./types";
+import { GitLabConnection, GitLabPackage, PackageVersionInfo } from "./types";
 
-export async function listPackages(config: GitLabConfig, packageName?: string): Promise<GitLabPackage[]> {
-  const query: Record<string, string> = {};
-  if (packageName) {
-    query.package_name = packageName;
-  }
-  return getPaginated<GitLabPackage>(config, `/projects/${encodeProjectId(config.projectPath)}/packages`, query);
-}
-
-export function listPackageNames(packages: GitLabPackage[]): string[] {
-  return Array.from(new Set(packages.map((p) => p.name))).sort((a, b) => a.localeCompare(b));
+/**
+ * Lists every package published in a project's own Package Registry. Each
+ * MFE lives in its own repo, so no package_name filter is applied — a
+ * dedicated project's registry is assumed to hold only that MFE's
+ * packages.
+ */
+export async function listPackages(connection: GitLabConnection, projectPath: string): Promise<GitLabPackage[]> {
+  return getPaginated<GitLabPackage>(connection, `/projects/${encodeProjectId(projectPath)}/packages`);
 }
 
 /**
@@ -27,12 +25,14 @@ export function sortPackageVersions(versions: PackageVersionInfo[]): PackageVers
   return [...semverVersions, ...nonSemverVersions];
 }
 
-export async function listPackageVersions(config: GitLabConfig, packageName: string): Promise<PackageVersionInfo[]> {
-  const packages = await listPackages(config, packageName);
-  const matching = packages.filter((p) => p.name === packageName);
+export async function listPackageVersions(
+  connection: GitLabConnection,
+  projectPath: string
+): Promise<PackageVersionInfo[]> {
+  const packages = await listPackages(connection, projectPath);
 
   const byVersion = new Map<string, PackageVersionInfo>();
-  for (const pkg of matching) {
+  for (const pkg of packages) {
     const info: PackageVersionInfo = {
       version: pkg.version,
       createdAt: pkg.created_at,
@@ -48,10 +48,10 @@ export async function listPackageVersions(config: GitLabConfig, packageName: str
 }
 
 export async function packageVersionExists(
-  config: GitLabConfig,
-  packageName: string,
+  connection: GitLabConnection,
+  projectPath: string,
   version: string
 ): Promise<boolean> {
-  const versions = await listPackageVersions(config, packageName);
+  const versions = await listPackageVersions(connection, projectPath);
   return versions.some((v) => v.version === version);
 }

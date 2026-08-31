@@ -32,22 +32,6 @@ export class MessageHandler {
           this.post({ type: "state", state: await this.registryService.getState() });
           return;
         }
-        case "getPackageVersions": {
-          const versions = await this.registryService.getPackageVersions(request.resourceName);
-          this.post({ type: "packageVersions", resourceName: request.resourceName, versions });
-          return;
-        }
-        case "checkCandidate": {
-          const result = await this.registryService.checkCandidate(request.resourceName, request.version);
-          this.post({ type: "candidateCheckResult", result });
-          return;
-        }
-        case "registerVersion": {
-          const result = await this.registryService.registerVersion(request.resourceName, request.version);
-          const state = result.success ? await this.registryService.getState() : undefined;
-          this.post({ type: "registerVersionResult", ...result, state });
-          return;
-        }
         case "setActiveVersion": {
           const result = await this.registryService.setActiveVersion(request.resourceName, request.version);
           const state = result.success ? await this.registryService.getState() : undefined;
@@ -55,7 +39,7 @@ export class MessageHandler {
           return;
         }
         case "addResource": {
-          const result = await this.registryService.addResource(request.resourceName, request.version);
+          const result = await this.registryService.addResource(request.resourceName, request.gitlabProject, request.version);
           const state = result.success ? await this.registryService.getState() : undefined;
           this.post({ type: "addResourceResult", ...result, state });
           return;
@@ -82,6 +66,11 @@ export class MessageHandler {
         case "checkRemoteStatus": {
           const status = await this.deploymentService.checkRemoteStatus();
           this.post({ type: "remoteStatusResult", status });
+          return;
+        }
+        case "getDeployHistory": {
+          const snapshots = await this.registryService.getDeployHistory();
+          this.post({ type: "deployHistoryResult", snapshots });
           return;
         }
         case "push": {

@@ -54,11 +54,6 @@
           "default": "",
           "description": "GitLab base URL, e.g. https://gitlab.example.com"
         },
-        "mfeResourceRegistry.projectPath": {
-          "type": "string",
-          "default": "",
-          "description": "GitLab project ID or path, e.g. frontend/mfe-resource-registry"
-        },
         "mfeResourceRegistry.jsonPath": {
           "type": "string",
           "default": "resources.json",

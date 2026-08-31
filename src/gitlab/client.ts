@@ -1,6 +1,6 @@
 import { URL } from "url";
 import { request } from "../util/http";
-import { GitLabConfig } from "./types";
+import { GitLabConnection } from "./types";
 
 export class GitLabApiError extends Error {
   constructor(message: string, public readonly statusCode?: number) {
@@ -13,8 +13,8 @@ export function encodeProjectId(projectPath: string): string {
   return encodeURIComponent(projectPath);
 }
 
-function buildUrl(config: GitLabConfig, path: string, query: Record<string, string> = {}): string {
-  const base = config.baseUrl.trim().replace(/\/+$/, "");
+function buildUrl(connection: GitLabConnection, path: string, query: Record<string, string> = {}): string {
+  const base = connection.baseUrl.trim().replace(/\/+$/, "");
   const url = new URL(`${base}/api/v4${path}`);
   for (const [key, value] of Object.entries(query)) {
     url.searchParams.set(key, value);
@@ -41,16 +41,16 @@ function parseNextLink(linkHeader: string | undefined): string | undefined {
  * the full result set.
  */
 export async function getPaginated<T>(
-  config: GitLabConfig,
+  connection: GitLabConnection,
   path: string,
   query: Record<string, string> = {}
 ): Promise<T[]> {
   const results: T[] = [];
-  let nextUrl: string | undefined = buildUrl(config, path, { per_page: "100", ...query });
+  let nextUrl: string | undefined = buildUrl(connection, path, { per_page: "100", ...query });
 
   while (nextUrl) {
     const res = await request(nextUrl, {
-      headers: { "PRIVATE-TOKEN": config.token, Accept: "application/json" },
+      headers: { "PRIVATE-TOKEN": connection.token, Accept: "application/json" },
     });
 
     if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -72,11 +72,14 @@ export async function getPaginated<T>(
   return results;
 }
 
-export async function testConnection(config: GitLabConfig): Promise<{ ok: boolean; message: string }> {
+export async function testConnection(
+  connection: GitLabConnection,
+  projectPath: string
+): Promise<{ ok: boolean; message: string }> {
   try {
-    const url = buildUrl(config, `/projects/${encodeProjectId(config.projectPath)}`);
+    const url = buildUrl(connection, `/projects/${encodeProjectId(projectPath)}`);
     const res = await request(url, {
-      headers: { "PRIVATE-TOKEN": config.token, Accept: "application/json" },
+      headers: { "PRIVATE-TOKEN": connection.token, Accept: "application/json" },
     });
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return { ok: true, message: "Connected" };

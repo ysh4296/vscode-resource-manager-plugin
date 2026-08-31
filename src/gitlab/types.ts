@@ -1,6 +1,10 @@
-export interface GitLabConfig {
+/**
+ * Just the GitLab instance + auth. Which project to query is per-resource
+ * (each MFE lives in its own repo), not part of this connection — see
+ * ResourceConfig.gitlabProject.
+ */
+export interface GitLabConnection {
   baseUrl: string;
-  projectPath: string;
   token: string;
 }
 

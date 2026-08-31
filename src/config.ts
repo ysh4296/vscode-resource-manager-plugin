@@ -2,11 +2,13 @@ import * as vscode from "vscode";
 
 export interface RepositoryConfig {
   gitlabUrl: string;
-  projectPath: string;
   jsonPath: string;
   s3BaseUrl: string;
   entryFile: string;
 }
+
+/** Internal, not user-configurable — folder (relative to the workspace root) where deploy-history snapshots are written. */
+export const DEPLOY_HISTORY_DIR = "deploy-history";
 
 const CONFIG_SECTION = "mfeResourceRegistry";
 const SECRET_KEY = "mfeResourceRegistry.gitlabToken";
@@ -15,7 +17,6 @@ export function getRepositoryConfig(): RepositoryConfig {
   const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
     gitlabUrl: config.get<string>("gitlabUrl", ""),
-    projectPath: config.get<string>("projectPath", ""),
     jsonPath: config.get<string>("jsonPath", "resources.json"),
     s3BaseUrl: config.get<string>("s3BaseUrl", ""),
     entryFile: config.get<string>("entryFile", "remoteEntry.js"),
@@ -32,7 +33,7 @@ export async function setRepositoryConfig(values: Partial<RepositoryConfig>): Pr
 }
 
 export function isRepositoryConfigComplete(config: RepositoryConfig): boolean {
-  return Boolean(config.gitlabUrl && config.projectPath && config.jsonPath && config.s3BaseUrl && config.entryFile);
+  return Boolean(config.gitlabUrl && config.jsonPath && config.s3BaseUrl && config.entryFile);
 }
 
 /**

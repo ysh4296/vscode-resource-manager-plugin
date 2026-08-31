@@ -25,22 +25,20 @@ export function VersionList({ current, versions, onSetActive }: VersionListProps
       {versions.map((v) => {
         const isActive = v.version === current;
         const gitlabOk = v.gitlab === "yes";
-        const s3Ok = v.s3 === "available";
-        const canActivate = gitlabOk && s3Ok && !isActive;
+        const canActivate = gitlabOk && !isActive;
 
         return (
           <div key={v.version} className={isActive ? "version-row active-row" : "version-row"}>
             <span className="version-cell">{v.version}</span>
             <div className="version-badges">
               <StatusBadge ok={gitlabOk} label="GitLab" />
-              <StatusBadge ok={s3Ok} label="S3" />
             </div>
             {isActive ? (
               <span className="active-label">Active</span>
             ) : (
               <button
                 disabled={!canActivate}
-                title={canActivate ? undefined : "GitLab package and S3 resource must both be available"}
+                title={canActivate ? undefined : "Version must exist in GitLab Package Registry"}
                 onClick={() => onSetActive(v.version)}
               >
                 Set Active

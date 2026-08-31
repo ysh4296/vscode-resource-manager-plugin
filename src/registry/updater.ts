@@ -55,7 +55,13 @@ export function setActiveVersion(registry: ResourceRegistry, resourceName: strin
   };
 }
 
-export function addResource(registry: ResourceRegistry, resourceName: string, current: string, url: string): ResourceRegistry {
+export function addResource(
+  registry: ResourceRegistry,
+  resourceName: string,
+  gitlabProject: string,
+  current: string,
+  url: string
+): ResourceRegistry {
   if (Object.prototype.hasOwnProperty.call(registry.resources, resourceName)) {
     throw new RegistryUpdateError(`Resource "${resourceName}" already exists`);
   }
@@ -63,7 +69,7 @@ export function addResource(registry: ResourceRegistry, resourceName: string, cu
   return {
     resources: {
       ...registry.resources,
-      [resourceName]: { current, versions: { [current]: { url } } },
+      [resourceName]: { gitlabProject, current, versions: { [current]: { url } } },
     },
   };
 }

@@ -1,6 +1,7 @@
 {
   "resources": {
     "app1": {
+      "gitlabProject": "frontend/app1",
       "current": "1.4.0",
       "versions": {
         "1.5.0": { "url": "https://cdn.example.com/app1/1.5.0/remoteEntry.js" },
@@ -9,6 +10,7 @@
       }
     },
     "app2": {
+      "gitlabProject": "frontend/app2",
       "current": "2.3.0",
       "versions": {
         "2.3.0": { "url": "https://cdn.example.com/app2/2.3.0/remoteEntry.js" }

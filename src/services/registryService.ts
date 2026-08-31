@@ -2,6 +2,7 @@ import * as path from "path";
 import * as semver from "semver";
 import * as vscode from "vscode";
 import {
+  DEPLOY_HISTORY_DIR,
   RepositoryConfig,
   getGitLabToken,
   getRepositoryConfig,
@@ -9,29 +10,22 @@ import {
   setGitLabToken,
   setRepositoryConfig,
 } from "../config";
+import { buildDeploySnapshot, listDeploySnapshots, readRepositoryVersion, writeDeploySnapshot } from "../registry/deployHistory";
 import { listPackageVersions, packageVersionExists } from "../gitlab/packages";
-import { GitLabConfig } from "../gitlab/types";
+import { GitLabConnection } from "../gitlab/types";
 import { readRegistryFile, writeRegistryFile } from "../registry/parser";
 import { ResourceRegistry } from "../registry/types";
 import * as updater from "../registry/updater";
 import { ValidationReport, validateRegistry } from "../registry/validator";
 import { buildResourceUrl } from "../resource/buildResourceUrl";
-import { checkResourceExists } from "../resource/validateResource";
 import {
   AppState,
-  CandidateCheckResult,
-  PackageVersionOption,
+  AutoRegisteredVersion,
+  DeploySnapshot,
   RepositoryConfigDTO,
   ResourceVersionStatus,
   ResourceViewModel,
 } from "../webview/messages";
-
-export class RegistryServiceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "RegistryServiceError";
-  }
-}
 
 export interface MutationResult {
   success: boolean;
@@ -50,11 +44,13 @@ function sortVersionEntries<T>(entries: Array<[string, T]>): Array<[string, T]> 
 }
 
 /**
- * Owns the in-memory registry, the GitLab/S3 live-status lookups shown in
- * the main resource list, and every mutation (register / set-active /
- * add-resource). Mutations always re-verify GitLab + S3 server-side before
- * writing, even though the webview already ran the same checks — the UI
- * check is for feedback, this one is the actual gate.
+ * Owns the in-memory registry, the GitLab live-status lookups shown in the
+ * main resource list, and every mutation (register / set-active /
+ * add-resource). Each resource lives in its own GitLab repo, so the
+ * project to query comes from that resource's own `gitlabProject` field,
+ * not from a single global setting. GitLab Package Registry is the sole
+ * source of truth for "does this version exist" — S3 is just where the
+ * build artifacts happen to be uploaded, so it isn't re-verified here.
  */
 export class RegistryService {
   private registry: ResourceRegistry | undefined;
@@ -65,13 +61,17 @@ export class RegistryService {
     return path.isAbsolute(config.jsonPath) ? config.jsonPath : path.join(this.workspaceRoot, config.jsonPath);
   }
 
-  async getGitLabConfig(): Promise<GitLabConfig | undefined> {
+  private resolveDeployHistoryDir(): string {
+    return path.join(this.workspaceRoot, DEPLOY_HISTORY_DIR);
+  }
+
+  async getGitLabConnection(): Promise<GitLabConnection | undefined> {
     const config = getRepositoryConfig();
     const token = await getGitLabToken(this.context.secrets);
-    if (!config.gitlabUrl || !config.projectPath || !token) {
+    if (!config.gitlabUrl || !token) {
       return undefined;
     }
-    return { baseUrl: config.gitlabUrl, projectPath: config.projectPath, token };
+    return { baseUrl: config.gitlabUrl, token };
   }
 
   async saveConfig(values: Omit<RepositoryConfigDTO, "hasToken">): Promise<void> {
@@ -103,6 +103,80 @@ export class RegistryService {
     return this.resolveJsonPath(getRepositoryConfig());
   }
 
+  /**
+   * Auto-registration: any version that exists in a resource's own GitLab
+   * project but isn't in the JSON's `versions` yet gets added
+   * automatically. Registration is no longer a manual, per-version user
+   * action — this runs on every getState() call so the resource list
+   * always reflects what's actually published in GitLab. Set Active stays
+   * a separate, explicit action.
+   */
+  private async autoRegisterNewVersions(
+    registry: ResourceRegistry,
+    connection: GitLabConnection,
+    config: RepositoryConfig
+  ): Promise<{ registry: ResourceRegistry; added: AutoRegisteredVersion[] }> {
+    let current = registry;
+    const added: AutoRegisteredVersion[] = [];
+
+    for (const [resourceName, resourceConfig] of Object.entries(registry.resources)) {
+      if (!resourceConfig.gitlabProject) {
+        continue; // No GitLab project configured for this resource yet.
+      }
+
+      let gitlabVersions;
+      try {
+        gitlabVersions = await listPackageVersions(connection, resourceConfig.gitlabProject);
+      } catch {
+        continue; // GitLab unreachable for this resource this round; try again next refresh.
+      }
+
+      for (const versionInfo of gitlabVersions) {
+        const version = versionInfo.version;
+        if (Object.prototype.hasOwnProperty.call(current.resources[resourceName].versions, version)) {
+          continue;
+        }
+
+        const url = buildResourceUrl({ baseUrl: config.s3BaseUrl, resourceName, version, entryFile: config.entryFile });
+        current = updater.registerVersion(current, resourceName, version, url);
+        added.push({ resourceName, version });
+      }
+    }
+
+    if (added.length > 0) {
+      await writeRegistryFile(this.resolveJsonPath(config), current);
+      this.registry = current;
+    }
+
+    return { registry: current, added };
+  }
+
+  /**
+   * The host version isn't looked up from GitLab — it's whatever the
+   * managed repo's own package.json says. Whenever that version doesn't
+   * already have a deploy-history snapshot, one is recorded automatically
+   * (capturing every resource's current active version), so history
+   * accumulates on its own as the repo's version moves forward — no manual
+   * "record snapshot" step. The written file flows through the normal
+   * diff/commit/push pipeline like any other change.
+   */
+  private async autoRecordDeploySnapshot(registry: ResourceRegistry): Promise<string | undefined> {
+    const hostVersion = await readRepositoryVersion(this.workspaceRoot);
+    if (!hostVersion) {
+      return undefined;
+    }
+
+    const dir = this.resolveDeployHistoryDir();
+    const existing = await listDeploySnapshots(dir);
+    if (existing.some((s) => s.hostVersion === hostVersion)) {
+      return undefined;
+    }
+
+    const snapshot = buildDeploySnapshot(hostVersion, registry);
+    await writeDeploySnapshot(dir, snapshot);
+    return hostVersion;
+  }
+
   async getState(): Promise<AppState> {
     const config = getRepositoryConfig();
     const hasToken = Boolean(await getGitLabToken(this.context.secrets));
@@ -120,92 +194,43 @@ export class RegistryService {
       return { config: dto, configComplete: true, resources: [], loadError: (err as Error).message };
     }
 
-    const gitlabConfig = await this.getGitLabConfig();
+    const connection = await this.getGitLabConnection();
+    let autoRegistered: AutoRegisteredVersion[] = [];
+    if (connection) {
+      const syncResult = await this.autoRegisterNewVersions(registry, connection, config);
+      registry = syncResult.registry;
+      autoRegistered = syncResult.added;
+    }
+
+    const autoSnapshotRecorded = await this.autoRecordDeploySnapshot(registry);
+
     const resources: ResourceViewModel[] = [];
 
     for (const [name, resourceConfig] of Object.entries(registry.resources)) {
       const sortedVersionEntries = sortVersionEntries(Object.entries(resourceConfig.versions));
       const versions: ResourceVersionStatus[] = await Promise.all(
         sortedVersionEntries.map(async ([version, versionConfig]): Promise<ResourceVersionStatus> => {
-          const [gitlabExists, s3Result] = await Promise.all([
-            gitlabConfig
-              ? packageVersionExists(gitlabConfig, name, version).catch(() => undefined)
-              : Promise.resolve(undefined),
-            checkResourceExists(versionConfig.url),
-          ]);
+          const gitlabExists =
+            connection && resourceConfig.gitlabProject
+              ? await packageVersionExists(connection, resourceConfig.gitlabProject, version).catch(() => undefined)
+              : undefined;
           return {
             version,
             url: versionConfig.url,
             gitlab: gitlabExists === undefined ? "error" : gitlabExists ? "yes" : "no",
-            s3: s3Result.status,
           };
         })
       );
-      resources.push({ name, current: resourceConfig.current, versions });
+      resources.push({ name, gitlabProject: resourceConfig.gitlabProject, current: resourceConfig.current, versions });
     }
 
-    return { config: dto, configComplete: true, resources };
-  }
-
-  async getPackageVersions(resourceName: string): Promise<PackageVersionOption[]> {
-    const config = getRepositoryConfig();
-    const gitlabConfig = await this.getGitLabConfig();
-    if (!gitlabConfig) {
-      throw new RegistryServiceError("GitLab is not configured");
-    }
-    const registry = await this.ensureRegistryLoaded(config);
-    const registered = new Set(Object.keys(registry.resources[resourceName]?.versions ?? {}));
-    const versions = await listPackageVersions(gitlabConfig, resourceName);
-
-    return versions.map((v) => ({
-      version: v.version,
-      isSemver: v.isSemver,
-      alreadyRegistered: registered.has(v.version),
-      generatedUrl: buildResourceUrl({
-        baseUrl: config.s3BaseUrl,
-        resourceName,
-        version: v.version,
-        entryFile: config.entryFile,
-      }),
-    }));
-  }
-
-  async checkCandidate(resourceName: string, version: string): Promise<CandidateCheckResult> {
-    const config = getRepositoryConfig();
-    const gitlabConfig = await this.getGitLabConfig();
-    const url = buildResourceUrl({ baseUrl: config.s3BaseUrl, resourceName, version, entryFile: config.entryFile });
-
-    const [gitlabExists, s3Result] = await Promise.all([
-      gitlabConfig ? packageVersionExists(gitlabConfig, resourceName, version) : Promise.resolve(false),
-      checkResourceExists(url),
-    ]);
-
-    return { resourceName, version, url, gitlabExists, s3: s3Result.status };
-  }
-
-  async registerVersion(resourceName: string, version: string): Promise<MutationResult> {
-    const config = getRepositoryConfig();
-    const registry = await this.ensureRegistryLoaded(config);
-    const resource = registry.resources[resourceName];
-    if (!resource) {
-      return { success: false, message: `Unknown resource "${resourceName}"` };
-    }
-    if (Object.prototype.hasOwnProperty.call(resource.versions, version)) {
-      return { success: false, message: `Version "${version}" is already registered` };
-    }
-
-    const check = await this.checkCandidate(resourceName, version);
-    if (!check.gitlabExists) {
-      return { success: false, message: "Version does not exist in GitLab Package Registry" };
-    }
-    if (check.s3 !== "available") {
-      return { success: false, message: `S3 resource is not available (status: ${check.s3})` };
-    }
-
-    const updated = updater.registerVersion(registry, resourceName, version, check.url);
-    await writeRegistryFile(this.resolveJsonPath(config), updated);
-    this.registry = updated;
-    return { success: true };
+    return {
+      config: dto,
+      configComplete: true,
+      resources,
+      autoRegistered: autoRegistered.length > 0 ? autoRegistered : undefined,
+      autoSnapshotRecorded,
+    };
   }
 
   async setActiveVersion(resourceName: string, version: string): Promise<MutationResult> {
@@ -215,21 +240,14 @@ export class RegistryService {
     if (!resource) {
       return { success: false, message: `Unknown resource "${resourceName}"` };
     }
-    const versionEntry = resource.versions[version];
-    if (!versionEntry) {
+    if (!resource.versions[version]) {
       return { success: false, message: `Version "${version}" is not registered for "${resourceName}"` };
     }
 
-    const gitlabConfig = await this.getGitLabConfig();
-    const [gitlabExists, s3Result] = await Promise.all([
-      gitlabConfig ? packageVersionExists(gitlabConfig, resourceName, version) : Promise.resolve(false),
-      checkResourceExists(versionEntry.url),
-    ]);
+    const connection = await this.getGitLabConnection();
+    const gitlabExists = connection ? await packageVersionExists(connection, resource.gitlabProject, version) : false;
     if (!gitlabExists) {
       return { success: false, message: "Version does not exist in GitLab Package Registry" };
-    }
-    if (s3Result.status !== "available") {
-      return { success: false, message: `S3 resource is not available (status: ${s3Result.status})` };
     }
 
     const updated = updater.setActiveVersion(registry, resourceName, version);
@@ -238,22 +256,25 @@ export class RegistryService {
     return { success: true };
   }
 
-  async addResource(resourceName: string, version: string): Promise<MutationResult> {
+  async getDeployHistory(): Promise<DeploySnapshot[]> {
+    return listDeploySnapshots(this.resolveDeployHistoryDir());
+  }
+
+  async addResource(resourceName: string, gitlabProject: string, version: string): Promise<MutationResult> {
     const config = getRepositoryConfig();
     const registry = await this.ensureRegistryLoaded(config);
     if (Object.prototype.hasOwnProperty.call(registry.resources, resourceName)) {
       return { success: false, message: `Resource "${resourceName}" already exists` };
     }
 
-    const check = await this.checkCandidate(resourceName, version);
-    if (!check.gitlabExists) {
+    const connection = await this.getGitLabConnection();
+    const gitlabExists = connection ? await packageVersionExists(connection, gitlabProject, version) : false;
+    if (!gitlabExists) {
       return { success: false, message: "Version does not exist in GitLab Package Registry" };
     }
-    if (check.s3 !== "available") {
-      return { success: false, message: `S3 resource is not available (status: ${check.s3})` };
-    }
 
-    const updated = updater.addResource(registry, resourceName, version, check.url);
+    const url = buildResourceUrl({ baseUrl: config.s3BaseUrl, resourceName, version, entryFile: config.entryFile });
+    const updated = updater.addResource(registry, resourceName, gitlabProject, version, url);
     await writeRegistryFile(this.resolveJsonPath(config), updated);
     this.registry = updated;
     return { success: true };
@@ -262,14 +283,13 @@ export class RegistryService {
   async validate(): Promise<ValidationReport> {
     const config = getRepositoryConfig();
     const registry = await this.ensureRegistryLoaded(config);
-    const gitlabConfig = await this.getGitLabConfig();
+    const connection = await this.getGitLabConnection();
 
     return validateRegistry(registry, {
       s3BaseUrl: config.s3BaseUrl,
       entryFile: config.entryFile,
-      checkS3: async (url) => (await checkResourceExists(url)).status === "available",
-      packageExists: async (resourceName, version) =>
-        gitlabConfig ? packageVersionExists(gitlabConfig, resourceName, version) : false,
+      packageExists: async (gitlabProject, version) =>
+        connection && gitlabProject ? packageVersionExists(connection, gitlabProject, version) : false,
     });
   }
 }

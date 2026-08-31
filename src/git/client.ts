@@ -8,8 +8,8 @@ export function getStatus(git: SimpleGit): Promise<StatusResult> {
   return git.status();
 }
 
-export async function stageFile(git: SimpleGit, filePath: string): Promise<void> {
-  await git.add(filePath);
+export async function stageFile(git: SimpleGit, filePaths: string | string[]): Promise<void> {
+  await git.add(filePaths);
 }
 
 export async function commit(git: SimpleGit, message: string): Promise<void> {

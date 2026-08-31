@@ -1,5 +1,4 @@
 import type { ResourceChangeSummary } from "../git/diff";
-import type { ResourceStatus } from "../resource/validateResource";
 import type { ValidationReport } from "../registry/validator";
 
 /**
@@ -11,7 +10,6 @@ import type { ValidationReport } from "../registry/validator";
 
 export interface RepositoryConfigDTO {
   gitlabUrl: string;
-  projectPath: string;
   jsonPath: string;
   s3BaseUrl: string;
   entryFile: string;
@@ -22,13 +20,19 @@ export interface ResourceVersionStatus {
   version: string;
   url: string;
   gitlab: "checking" | "yes" | "no" | "error";
-  s3: ResourceStatus;
 }
 
 export interface ResourceViewModel {
   name: string;
+  /** GitLab project (path or ID) that owns this resource's own repo/Package Registry. */
+  gitlabProject: string;
   current: string;
   versions: ResourceVersionStatus[];
+}
+
+export interface AutoRegisteredVersion {
+  resourceName: string;
+  version: string;
 }
 
 export interface AppState {
@@ -36,21 +40,10 @@ export interface AppState {
   configComplete: boolean;
   resources: ResourceViewModel[];
   loadError?: string;
-}
-
-export interface PackageVersionOption {
-  version: string;
-  isSemver: boolean;
-  alreadyRegistered: boolean;
-  generatedUrl: string;
-}
-
-export interface CandidateCheckResult {
-  resourceName: string;
-  version: string;
-  url: string;
-  gitlabExists: boolean;
-  s3: ResourceStatus;
+  /** Versions that were just auto-registered as part of this getState() call (see registryService.autoRegisterNewVersions). */
+  autoRegistered?: AutoRegisteredVersion[];
+  /** Host version a deploy-history snapshot was just auto-recorded for, if any (see registryService.autoRecordDeploySnapshot). */
+  autoSnapshotRecorded?: string;
 }
 
 export interface RemoteStatus {
@@ -60,31 +53,33 @@ export interface RemoteStatus {
   message: string;
 }
 
+export interface DeploySnapshot {
+  hostVersion: string;
+  recordedAt: string;
+  resources: Record<string, string>;
+}
+
 export type WebviewRequest =
   | { type: "getState" }
   | { type: "saveConfig"; config: Omit<RepositoryConfigDTO, "hasToken"> }
   | { type: "saveToken"; token: string }
-  | { type: "getPackageVersions"; resourceName: string }
-  | { type: "checkCandidate"; resourceName: string; version: string }
-  | { type: "registerVersion"; resourceName: string; version: string }
   | { type: "setActiveVersion"; resourceName: string; version: string }
-  | { type: "addResource"; resourceName: string; version: string }
+  | { type: "addResource"; resourceName: string; gitlabProject: string; version: string }
   | { type: "validate" }
   | { type: "getDiff" }
   | { type: "commit"; message: string }
   | { type: "checkRemoteStatus" }
-  | { type: "push" };
+  | { type: "push" }
+  | { type: "getDeployHistory" };
 
 export type ExtensionResponse =
   | { type: "state"; state: AppState }
   | { type: "error"; requestType: WebviewRequest["type"]; message: string }
-  | { type: "packageVersions"; resourceName: string; versions: PackageVersionOption[] }
-  | { type: "candidateCheckResult"; result: CandidateCheckResult }
-  | { type: "registerVersionResult"; success: boolean; message?: string; state?: AppState }
   | { type: "setActiveVersionResult"; success: boolean; message?: string; state?: AppState }
   | { type: "addResourceResult"; success: boolean; message?: string; state?: AppState }
   | { type: "validationResult"; report: ValidationReport }
   | { type: "diffResult"; diff: string; summary: ResourceChangeSummary[]; defaultCommitMessage: string }
   | { type: "commitResult"; success: boolean; message?: string }
   | { type: "remoteStatusResult"; status: RemoteStatus }
-  | { type: "pushResult"; success: boolean; message?: string; blocked?: boolean };
+  | { type: "pushResult"; success: boolean; message?: string; blocked?: boolean }
+  | { type: "deployHistoryResult"; snapshots: DeploySnapshot[] };

@@ -36,6 +36,12 @@ export interface DeployPanelProps {
  * workflow. Push stays disabled once a remote-divergence check reports the
  * branch has moved; the actual pre-push validation gate lives server-side
  * in messageHandler, this is just reflecting that state in the UI.
+ *
+ * Deploy-history snapshots aren't recorded from here — they're taken
+ * automatically (see registryService.autoRecordDeploySnapshot) whenever the
+ * managed repo's own package.json version changes, and picked up by the
+ * diff below like any other file change. See the Deploy History tab to
+ * browse what's been recorded.
  */
 export function DeployPanel(props: DeployPanelProps): JSX.Element {
   const {

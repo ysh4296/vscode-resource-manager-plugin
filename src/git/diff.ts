@@ -2,16 +2,19 @@ import { SimpleGit } from "simple-git";
 import { ResourceRegistry } from "../registry/types";
 
 /**
- * Returns the actual `git diff` text for the registry file, combining
- * unstaged and HEAD-relative changes so the UI can show what a commit
- * would contain.
+ * Returns the actual `git diff` text covering the given paths (typically
+ * the registry JSON plus the deploy-history folder). Paths are staged
+ * first so a brand-new untracked file (e.g. a fresh deploy-history
+ * snapshot) shows up as an addition instead of being invisible to `git
+ * diff`; the same staging happens again right before commit, so this has
+ * no effect beyond making the diff view accurate.
  */
-export async function getFileDiff(git: SimpleGit, filePath: string): Promise<string> {
-  const diffAgainstHead = await git.diff(["HEAD", "--", filePath]).catch(() => "");
-  if (diffAgainstHead.trim().length > 0) {
-    return diffAgainstHead;
+export async function getFileDiff(git: SimpleGit, paths: string[]): Promise<string> {
+  if (paths.length === 0) {
+    return "";
   }
-  return git.diff(["--", filePath]);
+  await git.add(paths).catch(() => undefined);
+  return git.diff(["--cached", "--", ...paths]);
 }
 
 export interface ResourceChangeSummary {

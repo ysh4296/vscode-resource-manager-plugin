@@ -21,8 +21,7 @@ export interface ValidationReport {
 export interface ValidationContext {
   s3BaseUrl: string;
   entryFile: string;
-  checkS3: (url: string) => Promise<boolean>;
-  packageExists: (resourceName: string, version: string) => Promise<boolean>;
+  packageExists: (gitlabProject: string, version: string) => Promise<boolean>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -43,6 +42,14 @@ export function validateRegistryStructure(data: unknown): ValidationCheck[] {
 
 export function validateResource(resourceName: string, config: ResourceConfig): ValidationCheck[] {
   const checks: ValidationCheck[] = [];
+
+  const hasGitlabProject = typeof config?.gitlabProject === "string" && config.gitlabProject.length > 0;
+  checks.push({
+    id: `${resourceName}:gitlab-project-field`,
+    label: `${resourceName} has "gitlabProject"`,
+    passed: hasGitlabProject,
+    message: hasGitlabProject ? undefined : 'Missing or empty "gitlabProject" field',
+  });
 
   const hasCurrent = typeof config?.current === "string" && config.current.length > 0;
   checks.push({
@@ -112,27 +119,13 @@ export function validateNoDuplicateVersions(resourceName: string, config: Resour
   };
 }
 
-export async function validateS3Resource(
-  resourceName: string,
-  version: string,
-  url: string,
-  checkS3: (url: string) => Promise<boolean>
-): Promise<ValidationCheck> {
-  const available = await checkS3(url);
-  return {
-    id: `${resourceName}@${version}:s3`,
-    label: `${resourceName}@${version} S3 Resource`,
-    passed: available,
-    message: available ? undefined : "S3 resource not accessible",
-  };
-}
-
 export async function validateGitLabPackage(
   resourceName: string,
+  gitlabProject: string,
   version: string,
-  packageExists: (resourceName: string, version: string) => Promise<boolean>
+  packageExists: (gitlabProject: string, version: string) => Promise<boolean>
 ): Promise<ValidationCheck> {
-  const exists = await packageExists(resourceName, version);
+  const exists = await packageExists(gitlabProject, version);
   return {
     id: `${resourceName}@${version}:gitlab`,
     label: `${resourceName}@${version} GitLab Package`,
@@ -146,10 +139,13 @@ export async function validateGitLabPackage(
  *  1. JSON structure
  *  2. each resource's `current` is present in its `versions`
  *  3. each version's URL matches the buildResourceUrl rule
- *  4. the *active* version's S3 resource is reachable
- *  5. every *registered* version still exists in GitLab Package Registry
- *  6. no duplicate version keys
- *  7. required fields are present (folded into checks 1-2 above)
+ *  4. every *registered* version still exists in GitLab Package Registry
+ *  5. no duplicate version keys
+ *  6. required fields are present (folded into checks 1-2 above)
+ *
+ * GitLab Package Registry is the sole source of truth for "does this
+ * version exist" — S3 is just where the artifact happens to be uploaded,
+ * so it's not re-verified here.
  */
 export async function validateRegistry(registry: ResourceRegistry, ctx: ValidationContext): Promise<ValidationReport> {
   const checks: ValidationCheck[] = [...validateRegistryStructure(registry)];
@@ -160,12 +156,7 @@ export async function validateRegistry(registry: ResourceRegistry, ctx: Validati
 
     for (const [version, versionConfig] of Object.entries(config.versions ?? {})) {
       checks.push(validateVersion(resourceName, version, versionConfig.url, ctx.s3BaseUrl, ctx.entryFile));
-      checks.push(await validateGitLabPackage(resourceName, version, ctx.packageExists));
-    }
-
-    const activeVersion = config.versions?.[config.current];
-    if (activeVersion) {
-      checks.push(await validateS3Resource(resourceName, config.current, activeVersion.url, ctx.checkS3));
+      checks.push(await validateGitLabPackage(resourceName, config.gitlabProject, version, ctx.packageExists));
     }
   }
 

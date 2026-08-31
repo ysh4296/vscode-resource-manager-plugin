@@ -5,10 +5,9 @@ import { VersionList } from "./VersionList";
 export interface ResourceItemProps {
   resource: ResourceViewModel;
   onSetActive: (resourceName: string, version: string) => void;
-  onOpenRegister: (resourceName: string) => void;
 }
 
-export function ResourceItem({ resource, onSetActive, onOpenRegister }: ResourceItemProps): JSX.Element {
+export function ResourceItem({ resource, onSetActive }: ResourceItemProps): JSX.Element {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -16,6 +15,7 @@ export function ResourceItem({ resource, onSetActive, onOpenRegister }: Resource
       <div className="resource-header" onClick={() => setExpanded((e) => !e)}>
         <span className="chevron">{expanded ? "▾" : "▸"}</span>
         <span className="resource-name">{resource.name}</span>
+        <span className="resource-project">{resource.gitlabProject || "(no GitLab project set)"}</span>
         <span className="resource-current">Current Version: {resource.current}</span>
       </div>
 
@@ -26,9 +26,6 @@ export function ResourceItem({ resource, onSetActive, onOpenRegister }: Resource
             versions={resource.versions}
             onSetActive={(version) => onSetActive(resource.name, version)}
           />
-          <button className="register-button" onClick={() => onOpenRegister(resource.name)}>
-            + Register Version
-          </button>
         </div>
       )}
     </div>

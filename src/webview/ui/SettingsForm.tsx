@@ -9,7 +9,6 @@ export interface SettingsFormProps {
 
 export function SettingsForm({ config, onSave, onSaveToken }: SettingsFormProps): JSX.Element {
   const [gitlabUrl, setGitlabUrl] = useState(config?.gitlabUrl ?? "");
-  const [projectPath, setProjectPath] = useState(config?.projectPath ?? "");
   const [jsonPath, setJsonPath] = useState(config?.jsonPath ?? "resources.json");
   const [s3BaseUrl, setS3BaseUrl] = useState(config?.s3BaseUrl ?? "");
   const [entryFile, setEntryFile] = useState(config?.entryFile ?? "remoteEntry.js");
@@ -20,7 +19,6 @@ export function SettingsForm({ config, onSave, onSaveToken }: SettingsFormProps)
       return;
     }
     setGitlabUrl(config.gitlabUrl);
-    setProjectPath(config.projectPath);
     setJsonPath(config.jsonPath);
     setS3BaseUrl(config.s3BaseUrl);
     setEntryFile(config.entryFile);
@@ -35,10 +33,6 @@ export function SettingsForm({ config, onSave, onSaveToken }: SettingsFormProps)
         <input value={gitlabUrl} onChange={(e) => setGitlabUrl(e.target.value)} placeholder="https://gitlab.example.com" />
       </label>
       <label>
-        Project (ID or path)
-        <input value={projectPath} onChange={(e) => setProjectPath(e.target.value)} placeholder="frontend/mfe-resource-registry" />
-      </label>
-      <label>
         JSON Path
         <input value={jsonPath} onChange={(e) => setJsonPath(e.target.value)} placeholder="resources.json" />
       </label>
@@ -50,9 +44,13 @@ export function SettingsForm({ config, onSave, onSaveToken }: SettingsFormProps)
         Entry File
         <input value={entryFile} onChange={(e) => setEntryFile(e.target.value)} placeholder="remoteEntry.js" />
       </label>
-      <button onClick={() => onSave({ gitlabUrl, projectPath, jsonPath, s3BaseUrl, entryFile })}>
+      <button onClick={() => onSave({ gitlabUrl, jsonPath, s3BaseUrl, entryFile })}>
         Save Repository Settings
       </button>
+      <p className="hint">
+        Each resource's own GitLab project is set per-resource (see the Resources tab), not here — every MFE lives in
+        its own repo.
+      </p>
 
       <hr />
 
