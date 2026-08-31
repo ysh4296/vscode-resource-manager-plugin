@@ -64,6 +64,7 @@ export type WebviewRequest =
   | { type: "saveConfig"; config: Omit<RepositoryConfigDTO, "hasToken"> }
   | { type: "saveToken"; token: string }
   | { type: "setActiveVersion"; resourceName: string; version: string }
+  | { type: "setGitlabProject"; resourceName: string; gitlabProject: string }
   | { type: "addResource"; resourceName: string; gitlabProject: string; version: string }
   | { type: "validate" }
   | { type: "getDiff" }
@@ -76,6 +77,7 @@ export type ExtensionResponse =
   | { type: "state"; state: AppState }
   | { type: "error"; requestType: WebviewRequest["type"]; message: string }
   | { type: "setActiveVersionResult"; success: boolean; message?: string; state?: AppState }
+  | { type: "setGitlabProjectResult"; success: boolean; message?: string; state?: AppState }
   | { type: "addResourceResult"; success: boolean; message?: string; state?: AppState }
   | { type: "validationResult"; report: ValidationReport }
   | { type: "diffResult"; diff: string; summary: ResourceChangeSummary[]; defaultCommitMessage: string }

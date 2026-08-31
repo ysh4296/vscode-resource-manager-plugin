@@ -36,6 +36,7 @@ function reducer(state: UIData, response: ExtensionResponse): UIData {
     case "state":
       return { ...state, appState: response.state };
     case "setActiveVersionResult":
+    case "setGitlabProjectResult":
     case "addResourceResult":
       return { ...state, appState: response.state ?? state.appState };
     case "validationResult":
@@ -67,6 +68,7 @@ function toastForResponse(response: ExtensionResponse): string | null {
       return parts.length > 0 ? parts.join(" / ") : null;
     }
     case "setActiveVersionResult":
+    case "setGitlabProjectResult":
     case "addResourceResult":
       return response.success ? "Registry updated." : (response.message ?? "Operation failed.");
     case "commitResult":
@@ -159,6 +161,9 @@ export function App(): JSX.Element {
             <ResourceList
               resources={data.appState.resources}
               onSetActive={(resourceName, version) => sendRequest({ type: "setActiveVersion", resourceName, version })}
+              onSetGitlabProject={(resourceName, gitlabProject) =>
+                sendRequest({ type: "setGitlabProject", resourceName, gitlabProject })
+              }
             />
           </>
         )}

@@ -55,6 +55,32 @@ export function setActiveVersion(registry: ResourceRegistry, resourceName: strin
   };
 }
 
+/**
+ * Changing which GitLab project a resource points at invalidates its
+ * existing `versions`/`current` — those versions belonged to the *old*
+ * project and have no relationship to the new one, so they're wiped
+ * instead of being left to mix with whatever the new project's own
+ * versions turn out to be. Re-saving the same project path is a no-op on
+ * versions (nothing actually changed).
+ */
+export function setGitlabProject(registry: ResourceRegistry, resourceName: string, gitlabProject: string): ResourceRegistry {
+  const resource = registry.resources[resourceName];
+  if (!resource) {
+    throw new RegistryUpdateError(`Unknown resource "${resourceName}"`);
+  }
+
+  if (resource.gitlabProject === gitlabProject) {
+    return registry;
+  }
+
+  return {
+    resources: {
+      ...registry.resources,
+      [resourceName]: { gitlabProject, current: "", versions: {} },
+    },
+  };
+}
+
 export function addResource(
   registry: ResourceRegistry,
   resourceName: string,

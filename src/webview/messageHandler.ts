@@ -38,6 +38,12 @@ export class MessageHandler {
           this.post({ type: "setActiveVersionResult", ...result, state });
           return;
         }
+        case "setGitlabProject": {
+          const result = await this.registryService.setGitlabProject(request.resourceName, request.gitlabProject);
+          const state = result.success ? await this.registryService.getState() : undefined;
+          this.post({ type: "setGitlabProjectResult", ...result, state });
+          return;
+        }
         case "addResource": {
           const result = await this.registryService.addResource(request.resourceName, request.gitlabProject, request.version);
           const state = result.success ? await this.registryService.getState() : undefined;

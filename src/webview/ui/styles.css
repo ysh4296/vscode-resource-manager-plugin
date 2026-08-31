@@ -138,6 +138,28 @@ button:disabled {
   opacity: 0.6;
   font-size: 11px;
   font-family: var(--vscode-editor-font-family, monospace);
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.resource-project-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.resource-project-edit input {
+  width: auto;
+  min-width: 160px;
+  font-size: 11px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  margin: 0;
+  padding: 2px 4px;
+}
+
+.resource-project-edit button {
+  padding: 2px 8px;
+  font-size: 11px;
 }
 
 .resource-current {

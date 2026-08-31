@@ -11,6 +11,7 @@ import {
   setRepositoryConfig,
 } from "../config";
 import { buildDeploySnapshot, listDeploySnapshots, readRepositoryVersion, writeDeploySnapshot } from "../registry/deployHistory";
+import { testConnection } from "../gitlab/client";
 import { listPackageVersions, packageVersionExists } from "../gitlab/packages";
 import { GitLabConnection } from "../gitlab/types";
 import { readRegistryFile, writeRegistryFile } from "../registry/parser";
@@ -231,6 +232,37 @@ export class RegistryService {
       autoRegistered: autoRegistered.length > 0 ? autoRegistered : undefined,
       autoSnapshotRecorded,
     };
+  }
+
+  /**
+   * Lets a resource's GitLab project be set/changed from the UI instead of
+   * hand-editing resources.json. Verifies the project is actually
+   * reachable before saving, when a token is configured.
+   */
+  async setGitlabProject(resourceName: string, gitlabProject: string): Promise<MutationResult> {
+    const trimmed = gitlabProject.trim();
+    if (!trimmed) {
+      return { success: false, message: "GitLab project is required" };
+    }
+
+    const config = getRepositoryConfig();
+    const registry = await this.ensureRegistryLoaded(config);
+    if (!registry.resources[resourceName]) {
+      return { success: false, message: `Unknown resource "${resourceName}"` };
+    }
+
+    const connection = await this.getGitLabConnection();
+    if (connection) {
+      const result = await testConnection(connection, trimmed);
+      if (!result.ok) {
+        return { success: false, message: `Could not reach GitLab project "${trimmed}": ${result.message}` };
+      }
+    }
+
+    const updated = updater.setGitlabProject(registry, resourceName, trimmed);
+    await writeRegistryFile(this.resolveJsonPath(config), updated);
+    this.registry = updated;
+    return { success: true };
   }
 
   async setActiveVersion(resourceName: string, version: string): Promise<MutationResult> {
