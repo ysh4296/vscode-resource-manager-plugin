@@ -1,48 +1,48 @@
 # MFE Resource Registry
 
-VS Code extension for managing a multi-MFE deployment registry (`resources.json`). It reads real version data from each MFE's own GitLab Package Registry, lets you activate a version through the UI, tracks deploy history per host release, and runs the Git diff/commit/push workflow — all without hand-editing JSON or typing S3 URLs.
+여러 MFE(마이크로 프론트엔드)의 배포 버전을 관리하는 `resources.json`을 위한 VS Code 확장입니다. 각 MFE 자신의 GitLab Package Registry에서 실제 버전 정보를 읽어오고, UI에서 버전을 활성화(Set Active)할 수 있게 해주며, 호스트 릴리즈별 배포 이력을 기록하고, Git diff/commit/push까지 한 화면에서 처리합니다 — JSON을 손으로 편집하거나 S3 URL을 직접 타이핑할 필요 없이요.
 
-## What it does
+## 하는 일
 
-- Auto-registers new versions: any version published in a resource's own GitLab project shows up in `resources.json` automatically (checked on open and every 30s) — no manual "register" step.
-- Generates the S3/CDN URL for each version from a fixed rule (`{s3BaseUrl}/{resourceName}/{version}/{entryFile}`), so nobody types a URL by hand.
-- Lets you activate a registered version ("Set Active") only after confirming it still exists in GitLab.
-- Records a deploy-history snapshot automatically whenever the managed repo's own `package.json` version changes, capturing every resource's active version at that point.
-- Runs Validation, Git diff, commit, and push from the same UI, blocking push if validation fails or the remote branch has moved.
+- **버전 자동 등록**: 어떤 리소스의 GitLab 프로젝트에 새 버전이 올라오면 `resources.json`에 자동으로 등록됩니다 (화면을 열 때, 그리고 30초마다 확인) — 수동으로 "등록" 버튼을 누를 필요가 없습니다.
+- **S3/CDN URL 자동 생성**: 고정된 규칙(`{s3BaseUrl}/{resourceName}/{version}/{entryFile}`)으로 각 버전의 URL을 만들어주기 때문에, 사람이 URL을 직접 타이핑하지 않습니다.
+- **Set Active**: 등록된 버전 중 GitLab에 실제로 존재하는지 다시 한번 확인한 뒤에만 활성화할 수 있습니다.
+- **배포 이력 자동 기록**: 관리 대상 레포 자체의 `package.json` 버전이 바뀔 때마다, 그 시점의 모든 리소스 활성 버전을 스냅샷으로 자동 저장합니다.
+- **Validation → Git diff → Commit → Push**를 한 화면에서 처리하며, 검증 실패나 원격 브랜치 변경이 감지되면 push를 막습니다.
 
-## Install
+## 설치
 
 ```bash
 npm install
-npm run build          # bundles dist/extension.js and dist/webview/*
+npm run build          # dist/extension.js와 dist/webview/* 번들 생성
 ```
 
-To try it in an Extension Development Host, open this folder in VS Code and press `F5`.
+Extension Development Host로 바로 테스트하려면 이 폴더를 VS Code로 열고 `F5`를 누르면 됩니다.
 
-To install as a normal extension:
+일반 확장으로 설치하려면:
 
 ```bash
-npx vsce package --allow-missing-repository   # needs Node 18+
+npx vsce package --allow-missing-repository   # Node 18+ 필요
 code --install-extension mfe-resource-registry-0.1.0.vsix
 ```
 
-## Setup
+## 초기 설정
 
-1. Open the folder that contains (or should contain) your `resources.json` as a VS Code workspace — **not** this extension's own source folder.
-2. Click the extension's icon in the Activity Bar (left sidebar).
-3. In the **Settings** tab, fill in:
+1. `resources.json`이 있는(또는 앞으로 관리할) 폴더를 VS Code 워크스페이스로 엽니다 — **이 확장 자체의 소스 폴더가 아닙니다.**
+2. 왼쪽 액티비티 바에서 확장 아이콘을 클릭합니다.
+3. **Settings** 탭에서 아래 항목을 입력합니다.
 
-   | Field | Meaning |
+   | 항목 | 의미 |
    |---|---|
-   | GitLab URL | Your GitLab instance, e.g. `https://gitlab.example.com` |
-   | JSON Path | Path to the registry file, relative to the workspace root (default `resources.json`) |
-   | S3 Base URL | Base URL used to generate resource URLs, e.g. `https://cdn.example.com` |
-   | Entry File | File name appended to generated URLs, e.g. `remoteEntry.js` |
-   | Token | A GitLab Personal Access Token with `read_api` scope. Stored only in VS Code's SecretStorage — never in `resources.json` or git. |
+   | GitLab URL | 사용 중인 GitLab 인스턴스, 예: `https://gitlab.example.com` |
+   | JSON Path | 워크스페이스 루트 기준 registry 파일 경로 (기본값 `resources.json`) |
+   | S3 Base URL | 리소스 URL 생성에 쓰이는 base URL, 예: `https://cdn.example.com` |
+   | Entry File | 생성되는 URL 끝에 붙는 파일명, 예: `remoteEntry.js` |
+   | Token | `read_api` 스코프의 GitLab Personal Access Token. VS Code SecretStorage에만 저장되며, `resources.json`이나 git에는 절대 들어가지 않습니다. |
 
-There is no global "GitLab project" setting — each MFE lives in its own GitLab repo, so the project path is set **per resource**, inside `resources.json` (see below).
+전역 "GitLab Project" 설정은 없습니다 — 각 MFE가 자기만의 GitLab 레포를 갖고 있기 때문에, 프로젝트 경로는 **리소스별로** `resources.json` 안에 저장됩니다 (아래 참고).
 
-## `resources.json` schema
+## `resources.json` 스키마
 
 ```json
 {
@@ -59,32 +59,32 @@ There is no global "GitLab project" setting — each MFE lives in its own GitLab
 }
 ```
 
-- `gitlabProject` — the GitLab project (path or numeric ID) whose Package Registry holds this resource's versions. **Not auto-discovered** — the tool has no way to know which repo an app lives in, so this is set once per resource. Click the project label under a resource's name in the **Resources** tab to set or change it (verified against GitLab before saving, if a token is configured).
-- `current` — the active version; must be a key in `versions`.
-- `versions[version].url` — generated via the URL rule above, not typed by hand. Once a version is auto-registered, this is written for you.
+- `gitlabProject` — 이 리소스의 버전이 올라오는 GitLab 프로젝트(경로 또는 숫자 ID). **자동으로 알아내지 않습니다** — 어떤 앱이 어느 레포에 있는지는 도구가 알 방법이 없어서, 리소스별로 한 번 지정해줘야 합니다. **Resources** 탭에서 리소스 이름 아래 프로젝트 경로를 클릭하면 입력/수정할 수 있고(토큰이 설정돼 있으면 저장 전에 GitLab에 실제로 존재하는지 확인합니다), **이 값을 바꾸면 기존 versions/current는 초기화됩니다** (이전 프로젝트의 버전이 새 프로젝트 것과 섞이지 않도록).
+- `current` — 활성 버전. 반드시 `versions`에 등록된 키여야 합니다.
+- `versions[version].url` — 위 규칙으로 자동 생성되며 손으로 타이핑하지 않습니다. 버전이 자동 등록되면 같이 채워집니다.
 
-To onboard a brand-new resource, add its entry with a `gitlabProject` and at least one real, published version — after that, auto-registration and Set Active take over.
+완전히 새로운 리소스를 등록하려면, `gitlabProject`와 실제로 배포된 버전 하나를 넣어서 항목을 추가하면 됩니다 — 그 이후부터는 자동 등록과 Set Active가 알아서 처리합니다. (지금은 이 최초 항목 추가를 위한 UI가 없어서 JSON을 직접 편집해야 합니다 — 아래 "아직 없는 기능" 참고)
 
-## How version data flows
+## 버전 데이터가 흘러가는 흐름
 
 ```
-GitLab Package Registry (per resource's own project)
+GitLab Package Registry (리소스 자신의 프로젝트)
         │  GET /api/v4/projects/{gitlabProject}/packages
         ▼
-  auto-register new versions into resources.json
+  resources.json에 새 버전 자동 등록
         │
         ▼
-  user clicks "Set Active" (re-checks GitLab existence first)
+  사용자가 "Set Active" 클릭 (GitLab에 존재하는지 다시 확인)
         │
         ▼
-  resources.json committed + pushed
+  resources.json commit + push
 ```
 
-S3 is where the artifact happens to be uploaded — its URL is generated from the rule above, but its existence is **not** verified by the extension. GitLab Package Registry is the single source of truth for "does this version exist."
+S3는 그저 빌드 산출물이 실제로 업로드되는 위치일 뿐입니다 — URL은 위 규칙으로 생성하지만, 그 URL에 실제 파일이 존재하는지는 이 확장이 검증하지 않습니다. "이 버전이 존재하는가"에 대한 유일한 판단 기준은 GitLab Package Registry입니다.
 
-## Deploy History
+## Deploy History (배포 이력)
 
-Whenever the managed repo's own `package.json` `version` field changes (and doesn't already have a snapshot), the extension writes `deploy-history/<version>.json`:
+관리 대상 레포 자체의 `package.json`의 `version` 필드가 바뀌었는데 아직 그 버전의 스냅샷이 없으면, 확장이 `deploy-history/<버전>.json`을 자동으로 생성합니다.
 
 ```json
 {
@@ -94,19 +94,20 @@ Whenever the managed repo's own `package.json` `version` field changes (and does
 }
 ```
 
-This lets you answer "which app versions shipped with host version X?" later. Browse recorded snapshots in the **Deploy History** tab. The file flows through the normal diff/commit/push pipeline like any other change — it isn't pushed on its own.
+이걸 보면 나중에 "호스트 버전 X를 배포했을 때 어떤 app이 어떤 버전이었나"를 되짚어볼 수 있습니다. 기록된 스냅샷은 **Deploy History** 탭에서 확인합니다. 이 파일도 다른 변경사항과 마찬가지로 평소의 diff/commit/push 흐름을 그대로 타고 올라갑니다 — 단독으로 push되지 않습니다.
 
-## Git workflow (Validate & Push tab)
+## Git 워크플로 (Validate & Push 탭)
 
-1. **Run Validation** — checks JSON structure, that `current` is a registered version, that URLs match the generation rule, and that every registered version still exists in GitLab.
-2. **Refresh Diff** — shows the real `git diff` for `resources.json` and `deploy-history/`.
-3. **Commit** — stages both paths and commits (default message is auto-generated from what changed).
-4. **Fetch & Check Remote** — fetches `origin` and blocks push if the remote branch has moved ahead (never merges/rebases automatically).
-5. **Push** — re-runs full validation right before pushing; blocked on any failure.
+1. **Run Validation** — JSON 구조, `current`가 등록된 버전인지, URL이 생성 규칙과 일치하는지, 등록된 모든 버전이 GitLab에 실제로 존재하는지를 검사합니다.
+2. **Refresh Diff** — `resources.json`과 `deploy-history/`에 대한 실제 `git diff` 결과를 보여줍니다.
+3. **Commit** — 두 경로를 모두 스테이징하고 커밋합니다 (커밋 메시지는 변경 내용을 바탕으로 기본값이 자동 생성됩니다).
+4. **Fetch & Check Remote** — `origin`을 fetch해서 원격 브랜치가 앞서 나갔으면 push를 막습니다 (자동으로 merge/rebase하지 않습니다).
+5. **Push** — push 직전에 전체 Validation을 한 번 더 돌리고, 하나라도 실패하면 막습니다.
 
-Git operations use the same `git` binary your terminal uses (via `simple-git`), with your existing SSH/credential setup — the extension has no separate auth path for git push.
+Git 작업은 터미널에서 쓰는 것과 같은 `git` 실행 파일을 그대로 사용하고(`simple-git` 경유), 기존에 설정된 SSH/credential을 그대로 씁니다 — 확장이 별도의 인증 로직을 갖고 있지 않습니다.
 
-## Known gaps
+## 아직 없는 기능
 
-- No UI to add a brand-new resource entry — edit `resources.json` directly for that today (a resource's `gitlabProject` can be set/edited from the Resources tab by clicking it, once the resource already exists).
-- Auto-registration assumes each GitLab project's Package Registry is dedicated to one resource (no `package_name` filtering) — if a project publishes multiple unrelated packages, all of them are treated as versions of that resource.
+- 완전히 새로운 리소스를 UI에서 추가하는 기능은 없습니다 — 지금은 `resources.json`을 직접 편집해서 첫 항목을 만들어야 합니다 (일단 리소스가 존재하면, 그 이후의 `gitlabProject` 수정은 Resources 탭에서 가능).
+- 자동 등록은 "GitLab 프로젝트 하나 = 리소스 하나"라고 가정합니다 (`package_name`으로 필터링하지 않음) — 한 프로젝트가 서로 무관한 여러 패키지를 배포한다면, 그것들이 전부 그 리소스의 버전으로 취급됩니다.
+- 자동화된 테스트 코드는 아직 없습니다. 다만 핵심 로직(`buildResourceUrl`, `registry/updater.ts`, `registry/validator.ts`, `git/diff.ts`의 diff 요약 함수 등)은 외부 I/O 없이 순수 함수로 분리돼 있어서 테스트를 붙이기 쉬운 구조입니다.
