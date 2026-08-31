@@ -106,8 +106,22 @@ S3는 그저 빌드 산출물이 실제로 업로드되는 위치일 뿐입니�
 
 Git 작업은 터미널에서 쓰는 것과 같은 `git` 실행 파일을 그대로 사용하고(`simple-git` 경유), 기존에 설정된 SSH/credential을 그대로 씁니다 — 확장이 별도의 인증 로직을 갖고 있지 않습니다.
 
+## 테스트
+
+```bash
+npm test
+```
+
+Node 내장 테스트 러너(`node:test`)와 `tsx`(TypeScript 실행용, 별도 설정 불필요)만 사용합니다. `vscode` 모듈에 의존하는 서비스/핸들러 계층(`registryService.ts`, `deploymentService.ts`, `messageHandler.ts` 등)은 실제 VS Code 없이 단위 테스트하기 어려워 제외했고, 순수 로직만 분리된 아래 모듈들을 다룹니다.
+
+- `resource/buildResourceUrl.ts`, `registry/updater.ts`, `registry/validator.ts`, `registry/parser.ts`, `git/diff.ts`, `gitlab/packages.ts`의 `sortPackageVersions`, `gitlab/client.ts`의 `encodeProjectId`
+- `registry/deployHistory.ts`는 파일시스템 I/O가 있어서 임시 디렉토리(`os.tmpdir()`)로 실제 읽기/쓰기를 검증합니다.
+
+네트워크가 필요한 부분(`gitlab/client.ts`의 페이지네이션, `util/http.ts`)은 로컬 mock 서버를 띄워야 해서 이 스위트에는 포함하지 않았습니다 — 그 부분은 `mfe-resources-mock`의 `mock-server.js`로 수동 테스트합니다.
+
+Node 18 미만에서는 `node --test`가 없으니, 이 저장소를 빌드/패키징할 때처럼 Node 20을 PATH에 얹어서 실행하세요.
+
 ## 아직 없는 기능
 
 - 완전히 새로운 리소스를 UI에서 추가하는 기능은 없습니다 — 지금은 `resources.json`을 직접 편집해서 첫 항목을 만들어야 합니다 (일단 리소스가 존재하면, 그 이후의 `gitlabProject` 수정은 Resources 탭에서 가능).
 - 자동 등록은 "GitLab 프로젝트 하나 = 리소스 하나"라고 가정합니다 (`package_name`으로 필터링하지 않음) — 한 프로젝트가 서로 무관한 여러 패키지를 배포한다면, 그것들이 전부 그 리소스의 버전으로 취급됩니다.
-- 자동화된 테스트 코드는 아직 없습니다. 다만 핵심 로직(`buildResourceUrl`, `registry/updater.ts`, `registry/validator.ts`, `git/diff.ts`의 diff 요약 함수 등)은 외부 I/O 없이 순수 함수로 분리돼 있어서 테스트를 붙이기 쉬운 구조입니다.

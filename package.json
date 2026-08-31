@@ -76,7 +76,8 @@
     "vscode:prepublish": "node esbuild.js --production",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "typecheck": "tsc --noEmit -p ./"
+    "typecheck": "tsc --noEmit -p ./",
+    "test": "node --import tsx --test $(find src -name '*.test.ts')"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -92,6 +93,7 @@
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^2.32.0",
     "esbuild": "^0.21.5",
+    "tsx": "^4.23.13",
     "typescript": "^5.5.3"
   }
 }
