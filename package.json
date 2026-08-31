@@ -1,0 +1,102 @@
+{
+  "name": "mfe-resource-registry",
+  "displayName": "MFE Resource Registry",
+  "description": "Manage MFE deployment resource registry JSON via GitLab Package Registry + S3 validation, with Git commit/push automation.",
+  "version": "0.1.0",
+  "publisher": "local-dev",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mfeResourceRegistry",
+          "title": "MFE Resource Registry",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "mfeResourceRegistry": [
+        {
+          "id": "mfeResourceRegistry.view",
+          "name": "Resource Registry",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "mfeResourceRegistry.open",
+        "title": "MFE Resource Registry: Open"
+      },
+      {
+        "command": "mfeResourceRegistry.configure",
+        "title": "MFE Resource Registry: Configure Repository"
+      },
+      {
+        "command": "mfeResourceRegistry.openInEditor",
+        "title": "MFE Resource Registry: Open in Editor Tab"
+      }
+    ],
+    "configuration": {
+      "title": "MFE Resource Registry",
+      "properties": {
+        "mfeResourceRegistry.gitlabUrl": {
+          "type": "string",
+          "default": "",
+          "description": "GitLab base URL, e.g. https://gitlab.example.com"
+        },
+        "mfeResourceRegistry.projectPath": {
+          "type": "string",
+          "default": "",
+          "description": "GitLab project ID or path, e.g. frontend/mfe-resource-registry"
+        },
+        "mfeResourceRegistry.jsonPath": {
+          "type": "string",
+          "default": "resources.json",
+          "description": "Path (relative to the workspace root) of the registry JSON file managed by this extension"
+        },
+        "mfeResourceRegistry.s3BaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL used to auto-generate S3/CDN resource URLs, e.g. https://cdn.example.com"
+        },
+        "mfeResourceRegistry.entryFile": {
+          "type": "string",
+          "default": "remoteEntry.js",
+          "description": "Entry file name appended to generated resource URLs, e.g. remoteEntry.js"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit -p ./"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "semver": "^7.6.3",
+    "simple-git": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/semver": "^7.5.8",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.32.0",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.5.3"
+  }
+}
