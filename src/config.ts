@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 
 export interface RepositoryConfig {
-  gitlabUrl: string;
+  /** Git clone URL (SSH or HTTPS) of the repo that holds the registry JSON. The extension manages its own local clone of this — it does not operate on whatever folder happens to be open in VS Code. */
+  repositoryUrl: string;
   jsonPath: string;
-  s3BaseUrl: string;
   entryFile: string;
 }
 
@@ -16,9 +16,8 @@ const SECRET_KEY = "mfeResourceRegistry.gitlabToken";
 export function getRepositoryConfig(): RepositoryConfig {
   const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
   return {
-    gitlabUrl: config.get<string>("gitlabUrl", ""),
+    repositoryUrl: config.get<string>("repositoryUrl", ""),
     jsonPath: config.get<string>("jsonPath", "resources.json"),
-    s3BaseUrl: config.get<string>("s3BaseUrl", ""),
     entryFile: config.get<string>("entryFile", "remoteEntry.js"),
   };
 }
@@ -27,13 +26,15 @@ export async function setRepositoryConfig(values: Partial<RepositoryConfig>): Pr
   const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
   for (const [key, value] of Object.entries(values)) {
     if (value !== undefined) {
-      await config.update(key, value, vscode.ConfigurationTarget.Workspace);
+      // Global (User) settings, not Workspace — the extension no longer requires
+      // a workspace to be open at all, so a workspace-scoped setting could fail to persist.
+      await config.update(key, value, vscode.ConfigurationTarget.Global);
     }
   }
 }
 
 export function isRepositoryConfigComplete(config: RepositoryConfig): boolean {
-  return Boolean(config.gitlabUrl && config.jsonPath && config.s3BaseUrl && config.entryFile);
+  return Boolean(config.repositoryUrl && config.jsonPath && config.entryFile);
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "name": "mfe-resource-registry",
   "displayName": "MFE Resource Registry",
-  "description": "Manage MFE deployment resource registry JSON via GitLab Package Registry + S3 validation, with Git commit/push automation.",
+  "description": "Manage MFE deployment resource registry JSON via each resource's live package.json version on GitLab, with Git commit/push automation.",
   "version": "0.1.0",
   "publisher": "local-dev",
   "private": true,
@@ -49,20 +49,15 @@
     "configuration": {
       "title": "MFE Resource Registry",
       "properties": {
-        "mfeResourceRegistry.gitlabUrl": {
+        "mfeResourceRegistry.repositoryUrl": {
           "type": "string",
           "default": "",
-          "description": "GitLab base URL, e.g. https://gitlab.example.com"
+          "description": "Git clone URL (SSH or HTTPS) of the repository that holds the registry JSON. The extension manages its own local clone of this repo — it does not use whatever folder happens to be open in VS Code."
         },
         "mfeResourceRegistry.jsonPath": {
           "type": "string",
           "default": "resources.json",
-          "description": "Path (relative to the workspace root) of the registry JSON file managed by this extension"
-        },
-        "mfeResourceRegistry.s3BaseUrl": {
-          "type": "string",
-          "default": "",
-          "description": "Base URL used to auto-generate S3/CDN resource URLs, e.g. https://cdn.example.com"
+          "description": "Path (relative to the repository root) of the registry JSON file managed by this extension"
         },
         "mfeResourceRegistry.entryFile": {
           "type": "string",

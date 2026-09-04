@@ -9,11 +9,12 @@ function registryWith(resources: ResourceRegistry["resources"]): ResourceRegistr
 
 test("summarizeRegistryDiff는 버전 추가와 활성 버전 변경을 함께 보고한다", () => {
   const before = registryWith({
-    app1: { gitlabProject: "g/app1", current: "1.4.0", versions: { "1.4.0": { url: "http://x/1.4.0" } } },
+    app1: { microserviceUrl: "https://gitlab.example.com/g/app1", cdnBaseUrl: "http://x", current: "1.4.0", versions: { "1.4.0": { url: "http://x/1.4.0" } } },
   });
   const after = registryWith({
     app1: {
-      gitlabProject: "g/app1",
+      microserviceUrl: "https://gitlab.example.com/g/app1",
+      cdnBaseUrl: "http://x",
       current: "1.5.0",
       versions: { "1.4.0": { url: "http://x/1.4.0" }, "1.5.0": { url: "http://x/1.5.0" } },
     },
@@ -28,7 +29,7 @@ test("summarizeRegistryDiff는 버전 추가와 활성 버전 변경을 함께 �
 
 test("summarizeRegistryDiff는 변경되지 않은 리소스는 결과에서 빼놓는다", () => {
   const same = registryWith({
-    app1: { gitlabProject: "g/app1", current: "1.0.0", versions: { "1.0.0": { url: "http://x" } } },
+    app1: { microserviceUrl: "https://gitlab.example.com/g/app1", cdnBaseUrl: "http://x", current: "1.0.0", versions: { "1.0.0": { url: "http://x" } } },
   });
   assert.deepEqual(summarizeRegistryDiff(same, same), []);
 });
@@ -36,7 +37,7 @@ test("summarizeRegistryDiff는 변경되지 않은 리소스는 결과에서 빼
 test("summarizeRegistryDiff는 새로 생긴 리소스(비교 대상이 없는 경우)도 처리한다", () => {
   const before = registryWith({});
   const after = registryWith({
-    app2: { gitlabProject: "g/app2", current: "1.0.0", versions: { "1.0.0": { url: "http://x" } } },
+    app2: { microserviceUrl: "https://gitlab.example.com/g/app2", cdnBaseUrl: "http://x", current: "1.0.0", versions: { "1.0.0": { url: "http://x" } } },
   });
 
   const [summary] = summarizeRegistryDiff(before, after);

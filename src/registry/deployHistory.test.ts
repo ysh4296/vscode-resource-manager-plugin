@@ -13,8 +13,8 @@ async function tmpDir(): Promise<string> {
 test("buildDeploySnapshot은 모든 리소스의 현재 버전을 호스트 버전과 함께 담는다", () => {
   const registry: ResourceRegistry = {
     resources: {
-      app1: { gitlabProject: "g/app1", current: "1.5.0", versions: {} },
-      app2: { gitlabProject: "g/app2", current: "2.3.0", versions: {} },
+      app1: { microserviceUrl: "https://gitlab.example.com/g/app1", cdnBaseUrl: "http://x", current: "1.5.0", versions: {} },
+      app2: { microserviceUrl: "https://gitlab.example.com/g/app2", cdnBaseUrl: "http://x", current: "2.3.0", versions: {} },
     },
   };
 

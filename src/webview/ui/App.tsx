@@ -35,9 +35,9 @@ function reducer(state: UIData, response: ExtensionResponse): UIData {
   switch (response.type) {
     case "state":
       return { ...state, appState: response.state };
-    case "setActiveVersionResult":
-    case "setGitlabProjectResult":
+    case "setResourceLocationResult":
     case "addResourceResult":
+    case "removeResourceResult":
       return { ...state, appState: response.state ?? state.appState };
     case "validationResult":
       return { ...state, validationReport: response.report };
@@ -67,9 +67,9 @@ function toastForResponse(response: ExtensionResponse): string | null {
       }
       return parts.length > 0 ? parts.join(" / ") : null;
     }
-    case "setActiveVersionResult":
-    case "setGitlabProjectResult":
+    case "setResourceLocationResult":
     case "addResourceResult":
+    case "removeResourceResult":
       return response.success ? "Registry updated." : (response.message ?? "Operation failed.");
     case "commitResult":
       return response.success ? "Committed." : (response.message ?? "Commit failed.");
@@ -129,7 +129,9 @@ export function App(): JSX.Element {
     <div className="app">
       <header className="app-header">
         <h1>MFE Resource Registry</h1>
-        {data.appState && <p className="repository-label">GitLab: {data.appState.config.gitlabUrl || "(not configured)"}</p>}
+        {data.appState && (
+          <p className="repository-label">Repository: {data.appState.config.repositoryUrl || "(not configured)"}</p>
+        )}
         <nav className="tabs">
           <button className={tab === "resources" ? "active" : ""} onClick={() => setTab("resources")} disabled={!configComplete}>
             Resources
@@ -160,10 +162,13 @@ export function App(): JSX.Element {
             {data.appState.loadError && <p className="status-bad">{data.appState.loadError}</p>}
             <ResourceList
               resources={data.appState.resources}
-              onSetActive={(resourceName, version) => sendRequest({ type: "setActiveVersion", resourceName, version })}
-              onSetGitlabProject={(resourceName, gitlabProject) =>
-                sendRequest({ type: "setGitlabProject", resourceName, gitlabProject })
+              onSetResourceLocation={(resourceName, microserviceUrl, cdnBaseUrl) =>
+                sendRequest({ type: "setResourceLocation", resourceName, microserviceUrl, cdnBaseUrl })
               }
+              onAddResource={(resourceName, microserviceUrl, cdnBaseUrl) =>
+                sendRequest({ type: "addResource", resourceName, microserviceUrl, cdnBaseUrl })
+              }
+              onRemoveResource={(resourceName) => sendRequest({ type: "removeResource", resourceName })}
             />
           </>
         )}

@@ -8,9 +8,8 @@ export interface SettingsFormProps {
 }
 
 export function SettingsForm({ config, onSave, onSaveToken }: SettingsFormProps): JSX.Element {
-  const [gitlabUrl, setGitlabUrl] = useState(config?.gitlabUrl ?? "");
+  const [repositoryUrl, setRepositoryUrl] = useState(config?.repositoryUrl ?? "");
   const [jsonPath, setJsonPath] = useState(config?.jsonPath ?? "resources.json");
-  const [s3BaseUrl, setS3BaseUrl] = useState(config?.s3BaseUrl ?? "");
   const [entryFile, setEntryFile] = useState(config?.entryFile ?? "remoteEntry.js");
   const [token, setToken] = useState("");
 
@@ -18,9 +17,8 @@ export function SettingsForm({ config, onSave, onSaveToken }: SettingsFormProps)
     if (!config) {
       return;
     }
-    setGitlabUrl(config.gitlabUrl);
+    setRepositoryUrl(config.repositoryUrl);
     setJsonPath(config.jsonPath);
-    setS3BaseUrl(config.s3BaseUrl);
     setEntryFile(config.entryFile);
   }, [config]);
 
@@ -29,27 +27,30 @@ export function SettingsForm({ config, onSave, onSaveToken }: SettingsFormProps)
       <h2>Repository Settings</h2>
 
       <label>
-        GitLab URL
-        <input value={gitlabUrl} onChange={(e) => setGitlabUrl(e.target.value)} placeholder="https://gitlab.example.com" />
+        Repository URL
+        <input
+          value={repositoryUrl}
+          onChange={(e) => setRepositoryUrl(e.target.value)}
+          placeholder="git@gitlab.example.com:group/mfe-resource-registry.git"
+        />
       </label>
+      <p className="hint">
+        Git clone URL of the repo holding the registry JSON. The extension clones/manages this on its own — you don't
+        need to have it open as a VS Code workspace.
+      </p>
       <label>
         JSON Path
         <input value={jsonPath} onChange={(e) => setJsonPath(e.target.value)} placeholder="resources.json" />
       </label>
       <label>
-        S3 Base URL
-        <input value={s3BaseUrl} onChange={(e) => setS3BaseUrl(e.target.value)} placeholder="https://cdn.example.com" />
-      </label>
-      <label>
         Entry File
         <input value={entryFile} onChange={(e) => setEntryFile(e.target.value)} placeholder="remoteEntry.js" />
       </label>
-      <button onClick={() => onSave({ gitlabUrl, jsonPath, s3BaseUrl, entryFile })}>
-        Save Repository Settings
-      </button>
+      <button onClick={() => onSave({ repositoryUrl, jsonPath, entryFile })}>Save Repository Settings</button>
       <p className="hint">
-        Each resource's own GitLab project is set per-resource (see the Resources tab), not here — every MFE lives in
-        its own repo.
+        There's no global GitLab instance setting — each resource has its own full Microservice URL (GitLab instance +
+        project) and CDN base URL, set per-resource on the Resources tab. Different MFEs can live on entirely
+        different GitLab instances; the token below is shared across all of them.
       </p>
 
       <hr />

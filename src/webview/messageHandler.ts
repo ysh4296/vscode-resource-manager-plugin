@@ -32,22 +32,26 @@ export class MessageHandler {
           this.post({ type: "state", state: await this.registryService.getState() });
           return;
         }
-        case "setActiveVersion": {
-          const result = await this.registryService.setActiveVersion(request.resourceName, request.version);
+        case "setResourceLocation": {
+          const result = await this.registryService.setResourceLocation(
+            request.resourceName,
+            request.microserviceUrl,
+            request.cdnBaseUrl
+          );
           const state = result.success ? await this.registryService.getState() : undefined;
-          this.post({ type: "setActiveVersionResult", ...result, state });
-          return;
-        }
-        case "setGitlabProject": {
-          const result = await this.registryService.setGitlabProject(request.resourceName, request.gitlabProject);
-          const state = result.success ? await this.registryService.getState() : undefined;
-          this.post({ type: "setGitlabProjectResult", ...result, state });
+          this.post({ type: "setResourceLocationResult", ...result, state });
           return;
         }
         case "addResource": {
-          const result = await this.registryService.addResource(request.resourceName, request.gitlabProject, request.version);
+          const result = await this.registryService.addResource(request.resourceName, request.microserviceUrl, request.cdnBaseUrl);
           const state = result.success ? await this.registryService.getState() : undefined;
           this.post({ type: "addResourceResult", ...result, state });
+          return;
+        }
+        case "removeResource": {
+          const result = await this.registryService.removeResource(request.resourceName);
+          const state = result.success ? await this.registryService.getState() : undefined;
+          this.post({ type: "removeResourceResult", ...result, state });
           return;
         }
         case "validate": {

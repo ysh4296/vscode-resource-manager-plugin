@@ -25,31 +25,39 @@ export interface PushResult {
  * and push. Never merges or rebases on the user's behalf — a diverged
  * remote simply blocks the push. Tracks both the registry JSON and the
  * deploy-history folder, since a push can carry a new deploy-history
- * snapshot alongside (or instead of) a resources.json change.
+ * snapshot alongside (or instead of) a resources.json change. Operates on
+ * RegistryService's managed clone (see RegistryService.getRepoRoot), not
+ * on whatever folder happens to be open in VS Code.
  */
 export class DeploymentService {
-  private readonly git: SimpleGit;
+  private git: SimpleGit | undefined;
+  private gitRoot: string | undefined;
 
-  constructor(
-    private readonly workspaceRoot: string,
-    private readonly registryService: RegistryService
-  ) {
-    this.git = createGitClient(workspaceRoot);
+  constructor(private readonly registryService: RegistryService) {}
+
+  private async getGit(): Promise<{ git: SimpleGit; root: string }> {
+    const root = await this.registryService.getRepoRoot();
+    if (!this.git || this.gitRoot !== root) {
+      this.git = createGitClient(root);
+      this.gitRoot = root;
+    }
+    return { git: this.git, root };
   }
 
   /** Only paths that currently exist on disk — `git add`/`git diff` reject a pathspec that matches nothing. */
-  private trackedPaths(): string[] {
+  private trackedPaths(root: string): string[] {
     const config = getRepositoryConfig();
-    return [config.jsonPath, DEPLOY_HISTORY_DIR].filter((relPath) => fs.existsSync(path.join(this.workspaceRoot, relPath)));
+    return [config.jsonPath, DEPLOY_HISTORY_DIR].filter((relPath) => fs.existsSync(path.join(root, relPath)));
   }
 
   async getDiff(): Promise<DiffResult> {
-    const diff = await getFileDiff(this.git, this.trackedPaths());
+    const { git, root } = await this.getGit();
+    const diff = await getFileDiff(git, this.trackedPaths(root));
 
     let summary: ResourceChangeSummary[] = [];
     try {
       const relativeJsonPath = getRepositoryConfig().jsonPath;
-      const headContent = await this.git.show([`HEAD:${relativeJsonPath}`]);
+      const headContent = await git.show([`HEAD:${relativeJsonPath}`]);
       const oldRegistry = JSON.parse(headContent) as ResourceRegistry;
       const current = this.registryService.getRegistrySnapshot();
       if (current) {
@@ -63,23 +71,26 @@ export class DeploymentService {
   }
 
   async commit(message: string): Promise<void> {
-    const paths = this.trackedPaths();
+    const { git, root } = await this.getGit();
+    const paths = this.trackedPaths(root);
     if (paths.length > 0) {
-      await stageFile(this.git, paths);
+      await stageFile(git, paths);
     }
-    await gitCommit(this.git, message);
+    await gitCommit(git, message);
   }
 
   async checkRemoteStatus(): Promise<RemoteCheckResult> {
-    return checkRemoteDiverged(this.git);
+    const { git } = await this.getGit();
+    return checkRemoteDiverged(git);
   }
 
   async push(): Promise<PushResult> {
-    const remoteStatus = await checkRemoteDiverged(this.git);
+    const { git } = await this.getGit();
+    const remoteStatus = await checkRemoteDiverged(git);
     if (remoteStatus.diverged) {
       return { success: false, blocked: true, message: remoteStatus.message };
     }
-    await gitPush(this.git);
+    await gitPush(git);
     return { success: true };
   }
 }

@@ -56,35 +56,77 @@ export function setActiveVersion(registry: ResourceRegistry, resourceName: strin
 }
 
 /**
- * Changing which GitLab project a resource points at invalidates its
- * existing `versions`/`current` — those versions belonged to the *old*
- * project and have no relationship to the new one, so they're wiped
- * instead of being left to mix with whatever the new project's own
- * versions turn out to be. Re-saving the same project path is a no-op on
- * versions (nothing actually changed).
+ * Changing which microservice URL (GitLab instance + project) a resource
+ * points at invalidates its existing `versions`/`current` — those
+ * versions belonged to the *old* project and have no relationship to the
+ * new one, so they're wiped instead of being left to mix with whatever
+ * the new project's own versions turn out to be. Re-saving the same URL
+ * is a no-op on versions (nothing actually changed).
  */
-export function setGitlabProject(registry: ResourceRegistry, resourceName: string, gitlabProject: string): ResourceRegistry {
+export function setMicroserviceUrl(registry: ResourceRegistry, resourceName: string, microserviceUrl: string): ResourceRegistry {
   const resource = registry.resources[resourceName];
   if (!resource) {
     throw new RegistryUpdateError(`Unknown resource "${resourceName}"`);
   }
 
-  if (resource.gitlabProject === gitlabProject) {
+  if (resource.microserviceUrl === microserviceUrl) {
     return registry;
   }
 
   return {
     resources: {
       ...registry.resources,
-      [resourceName]: { gitlabProject, current: "", versions: {} },
+      [resourceName]: { ...resource, microserviceUrl, current: "", versions: {} },
     },
   };
+}
+
+/**
+ * Unlike setGitlabProject, changing the CDN base URL doesn't invalidate
+ * existing versions — the versions themselves haven't changed, only where
+ * their files are served from. Existing entries' stored `url` values will
+ * simply fail the "URL matches rule" validation check until they're
+ * re-registered against the new base.
+ */
+export function setCdnBaseUrl(registry: ResourceRegistry, resourceName: string, cdnBaseUrl: string): ResourceRegistry {
+  const resource = registry.resources[resourceName];
+  if (!resource) {
+    throw new RegistryUpdateError(`Unknown resource "${resourceName}"`);
+  }
+
+  if (resource.cdnBaseUrl === cdnBaseUrl) {
+    return registry;
+  }
+
+  return {
+    resources: {
+      ...registry.resources,
+      [resourceName]: { ...resource, cdnBaseUrl },
+    },
+  };
+}
+
+/**
+ * Sets microserviceUrl and cdnBaseUrl together as one paired update — the
+ * two values are entered and verified as a pair from the UI. Composes the
+ * two single-field updaters so the reset-on-url-change rule still applies
+ * (see setMicroserviceUrl) while the CDN URL is applied on top.
+ */
+export function setResourceLocation(
+  registry: ResourceRegistry,
+  resourceName: string,
+  microserviceUrl: string,
+  cdnBaseUrl: string
+): ResourceRegistry {
+  const afterProject = setMicroserviceUrl(registry, resourceName, microserviceUrl);
+  return setCdnBaseUrl(afterProject, resourceName, cdnBaseUrl);
 }
 
 export function addResource(
   registry: ResourceRegistry,
   resourceName: string,
-  gitlabProject: string,
+  microserviceUrl: string,
+  cdnBaseUrl: string,
   current: string,
   url: string
 ): ResourceRegistry {
@@ -95,7 +137,17 @@ export function addResource(
   return {
     resources: {
       ...registry.resources,
-      [resourceName]: { gitlabProject, current, versions: { [current]: { url } } },
+      [resourceName]: { microserviceUrl, cdnBaseUrl, current, versions: { [current]: { url } } },
     },
+  };
+}
+
+export function removeResource(registry: ResourceRegistry, resourceName: string): ResourceRegistry {
+  if (!Object.prototype.hasOwnProperty.call(registry.resources, resourceName)) {
+    throw new RegistryUpdateError(`Unknown resource "${resourceName}"`);
+  }
+
+  return {
+    resources: Object.fromEntries(Object.entries(registry.resources).filter(([name]) => name !== resourceName)),
   };
 }

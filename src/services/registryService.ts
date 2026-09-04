@@ -1,24 +1,19 @@
 import * as path from "path";
 import * as semver from "semver";
 import * as vscode from "vscode";
-import {
-  DEPLOY_HISTORY_DIR,
-  RepositoryConfig,
-  getGitLabToken,
-  getRepositoryConfig,
-  isRepositoryConfigComplete,
-  setGitLabToken,
-  setRepositoryConfig,
-} from "../config";
+import { DEPLOY_HISTORY_DIR, RepositoryConfig, getGitLabToken, getRepositoryConfig, isRepositoryConfigComplete, setGitLabToken, setRepositoryConfig } from "../config";
 import { buildDeploySnapshot, listDeploySnapshots, readRepositoryVersion, writeDeploySnapshot } from "../registry/deployHistory";
 import { testConnection } from "../gitlab/client";
-import { listPackageVersions, packageVersionExists } from "../gitlab/packages";
+import { getRepositoryPackageVersion } from "../gitlab/repositoryVersion";
+import { parseMicroserviceUrl } from "../gitlab/projectUrl";
 import { GitLabConnection } from "../gitlab/types";
+import { ensureRepoCloned, resolveCloneDir } from "../git/repoManager";
 import { readRegistryFile, writeRegistryFile } from "../registry/parser";
 import { ResourceRegistry } from "../registry/types";
 import * as updater from "../registry/updater";
 import { ValidationReport, validateRegistry } from "../registry/validator";
 import { buildResourceUrl } from "../resource/buildResourceUrl";
+import { checkCdnReachable } from "../resource/cdnReachability";
 import {
   AppState,
   AutoRegisteredVersion,
@@ -47,32 +42,70 @@ function sortVersionEntries<T>(entries: Array<[string, T]>): Array<[string, T]> 
 /**
  * Owns the in-memory registry, the GitLab live-status lookups shown in the
  * main resource list, and every mutation (register / set-active /
- * add-resource). Each resource lives in its own GitLab repo, so the
- * project to query comes from that resource's own `gitlabProject` field,
- * not from a single global setting. GitLab Package Registry is the sole
- * source of truth for "does this version exist" — S3 is just where the
- * build artifacts happen to be uploaded, so it isn't re-verified here.
+ * add-resource). The extension does not operate on whatever folder happens
+ * to be open in VS Code — it manages its own local clone of the
+ * `repositoryUrl` configured in Settings (see git/repoManager.ts), keyed by
+ * that URL.
+ *
+ * Each resource carries its own full `microserviceUrl` (GitLab instance +
+ * project, e.g. "https://gitlab.example.com/frontend/app1") rather than
+ * relying on one global GitLab instance setting — different MFEs can
+ * genuinely live on different GitLab instances. The Personal Access Token
+ * is still shared across all of them (see Settings). A resource's own
+ * package.json on its GitLab project's default branch is the sole source
+ * of truth for "what version is currently live" — no git tags or Package
+ * Registry publish step required. CDN is just where the build artifacts
+ * happen to be uploaded, so it isn't re-verified here.
  */
 export class RegistryService {
   private registry: ResourceRegistry | undefined;
 
-  constructor(private readonly context: vscode.ExtensionContext, private readonly workspaceRoot: string) {}
+  constructor(private readonly context: vscode.ExtensionContext, private readonly storageRoot: string) {}
 
-  private resolveJsonPath(config: RepositoryConfig): string {
-    return path.isAbsolute(config.jsonPath) ? config.jsonPath : path.join(this.workspaceRoot, config.jsonPath);
-  }
-
-  private resolveDeployHistoryDir(): string {
-    return path.join(this.workspaceRoot, DEPLOY_HISTORY_DIR);
-  }
-
-  async getGitLabConnection(): Promise<GitLabConnection | undefined> {
+  /**
+   * Resolves (cloning on first use) the local working copy of the
+   * configured repository. Public so DeploymentService can point its git
+   * client at the same clone without duplicating the clone logic.
+   */
+  async getRepoRoot(): Promise<string> {
     const config = getRepositoryConfig();
+    if (!config.repositoryUrl) {
+      throw new Error("Repository URL is not configured");
+    }
+    const cloneDir = resolveCloneDir(this.storageRoot, config.repositoryUrl);
+    await ensureRepoCloned(cloneDir, config.repositoryUrl);
+    return cloneDir;
+  }
+
+  private async resolveJsonPath(config: RepositoryConfig): Promise<string> {
+    const root = await this.getRepoRoot();
+    return path.isAbsolute(config.jsonPath) ? config.jsonPath : path.join(root, config.jsonPath);
+  }
+
+  private async resolveDeployHistoryDir(): Promise<string> {
+    const root = await this.getRepoRoot();
+    return path.join(root, DEPLOY_HISTORY_DIR);
+  }
+
+  /**
+   * Combines the shared token with a specific resource's own microserviceUrl
+   * to get a GitLab connection scoped to that resource's instance, plus the
+   * project path within it. Returns undefined if there's no token yet or
+   * the URL doesn't parse — both are treated as "can't verify right now".
+   */
+  private async resolveGitLabAccess(
+    microserviceUrl: string
+  ): Promise<{ connection: GitLabConnection; projectPath: string } | undefined> {
     const token = await getGitLabToken(this.context.secrets);
-    if (!config.gitlabUrl || !token) {
+    if (!token) {
       return undefined;
     }
-    return { baseUrl: config.gitlabUrl, token };
+    try {
+      const { baseUrl, projectPath } = parseMicroserviceUrl(microserviceUrl);
+      return { connection: { baseUrl, token }, projectPath };
+    } catch {
+      return undefined;
+    }
   }
 
   async saveConfig(values: Omit<RepositoryConfigDTO, "hasToken">): Promise<void> {
@@ -84,7 +117,7 @@ export class RegistryService {
   }
 
   private async loadRegistry(config: RepositoryConfig): Promise<ResourceRegistry> {
-    const { registry } = await readRegistryFile(this.resolveJsonPath(config));
+    const { registry } = await readRegistryFile(await this.resolveJsonPath(config));
     this.registry = registry;
     return registry;
   }
@@ -100,52 +133,57 @@ export class RegistryService {
     return this.registry;
   }
 
-  getJsonFilePath(): string {
-    return this.resolveJsonPath(getRepositoryConfig());
-  }
-
   /**
-   * Auto-registration: any version that exists in a resource's own GitLab
-   * project but isn't in the JSON's `versions` yet gets added
-   * automatically. Registration is no longer a manual, per-version user
-   * action — this runs on every getState() call so the resource list
-   * always reflects what's actually published in GitLab. Set Active stays
-   * a separate, explicit action.
+   * Auto-registration: whatever version a resource's own package.json
+   * currently says on GitLab, if it isn't in the JSON's `versions` yet,
+   * gets added *and* promoted to `current` automatically — GitLab only
+   * ever reports one live version per resource, so there's no separate
+   * "pick which registered version to activate" decision to gate behind a
+   * manual step. This runs on every getState() call so the resource list
+   * always reflects what's actually live on GitLab.
    */
   private async autoRegisterNewVersions(
     registry: ResourceRegistry,
-    connection: GitLabConnection,
     config: RepositoryConfig
   ): Promise<{ registry: ResourceRegistry; added: AutoRegisteredVersion[] }> {
     let current = registry;
     const added: AutoRegisteredVersion[] = [];
 
     for (const [resourceName, resourceConfig] of Object.entries(registry.resources)) {
-      if (!resourceConfig.gitlabProject) {
-        continue; // No GitLab project configured for this resource yet.
+      if (!resourceConfig.microserviceUrl || !resourceConfig.cdnBaseUrl) {
+        continue; // Microservice URL and/or CDN base URL not configured for this resource yet.
       }
 
-      let gitlabVersions;
-      try {
-        gitlabVersions = await listPackageVersions(connection, resourceConfig.gitlabProject);
-      } catch {
-        continue; // GitLab unreachable for this resource this round; try again next refresh.
+      const access = await this.resolveGitLabAccess(resourceConfig.microserviceUrl);
+      if (!access) {
+        continue; // No token yet, or the URL doesn't parse; try again next refresh.
       }
 
-      for (const versionInfo of gitlabVersions) {
-        const version = versionInfo.version;
-        if (Object.prototype.hasOwnProperty.call(current.resources[resourceName].versions, version)) {
-          continue;
-        }
-
-        const url = buildResourceUrl({ baseUrl: config.s3BaseUrl, resourceName, version, entryFile: config.entryFile });
-        current = updater.registerVersion(current, resourceName, version, url);
-        added.push({ resourceName, version });
+      const version = await getRepositoryPackageVersion(access.connection, access.projectPath);
+      if (!version) {
+        continue; // No package.json / no version field / GitLab unreachable this round; try again next refresh.
       }
+
+      if (Object.prototype.hasOwnProperty.call(current.resources[resourceName].versions, version)) {
+        continue; // Already registered.
+      }
+
+      const url = buildResourceUrl({
+        baseUrl: resourceConfig.cdnBaseUrl,
+        projectPath: access.projectPath,
+        version,
+        entryFile: config.entryFile,
+      });
+      current = updater.registerVersion(current, resourceName, version, url);
+      // GitLab only ever reports one "live" version per resource, so there's
+      // no separate choice to make here — whatever just got auto-registered
+      // *is* the version that should be serving. No manual promotion step.
+      current = updater.setActiveVersion(current, resourceName, version);
+      added.push({ resourceName, version });
     }
 
     if (added.length > 0) {
-      await writeRegistryFile(this.resolveJsonPath(config), current);
+      await writeRegistryFile(await this.resolveJsonPath(config), current);
       this.registry = current;
     }
 
@@ -162,12 +200,13 @@ export class RegistryService {
    * diff/commit/push pipeline like any other change.
    */
   private async autoRecordDeploySnapshot(registry: ResourceRegistry): Promise<string | undefined> {
-    const hostVersion = await readRepositoryVersion(this.workspaceRoot);
+    const root = await this.getRepoRoot();
+    const hostVersion = await readRepositoryVersion(root);
     if (!hostVersion) {
       return undefined;
     }
 
-    const dir = this.resolveDeployHistoryDir();
+    const dir = await this.resolveDeployHistoryDir();
     const existing = await listDeploySnapshots(dir);
     if (existing.some((s) => s.hostVersion === hostVersion)) {
       return undefined;
@@ -195,34 +234,30 @@ export class RegistryService {
       return { config: dto, configComplete: true, resources: [], loadError: (err as Error).message };
     }
 
-    const connection = await this.getGitLabConnection();
-    let autoRegistered: AutoRegisteredVersion[] = [];
-    if (connection) {
-      const syncResult = await this.autoRegisterNewVersions(registry, connection, config);
-      registry = syncResult.registry;
-      autoRegistered = syncResult.added;
-    }
+    const syncResult = await this.autoRegisterNewVersions(registry, config);
+    registry = syncResult.registry;
+    const autoRegistered = syncResult.added;
 
     const autoSnapshotRecorded = await this.autoRecordDeploySnapshot(registry);
 
     const resources: ResourceViewModel[] = [];
 
     for (const [name, resourceConfig] of Object.entries(registry.resources)) {
+      const access = resourceConfig.microserviceUrl ? await this.resolveGitLabAccess(resourceConfig.microserviceUrl) : undefined;
+      const liveVersion = access ? await getRepositoryPackageVersion(access.connection, access.projectPath) : undefined;
       const sortedVersionEntries = sortVersionEntries(Object.entries(resourceConfig.versions));
-      const versions: ResourceVersionStatus[] = await Promise.all(
-        sortedVersionEntries.map(async ([version, versionConfig]): Promise<ResourceVersionStatus> => {
-          const gitlabExists =
-            connection && resourceConfig.gitlabProject
-              ? await packageVersionExists(connection, resourceConfig.gitlabProject, version).catch(() => undefined)
-              : undefined;
-          return {
-            version,
-            url: versionConfig.url,
-            gitlab: gitlabExists === undefined ? "error" : gitlabExists ? "yes" : "no",
-          };
-        })
-      );
-      resources.push({ name, gitlabProject: resourceConfig.gitlabProject, current: resourceConfig.current, versions });
+      const versions: ResourceVersionStatus[] = sortedVersionEntries.map(([version, versionConfig]): ResourceVersionStatus => ({
+        version,
+        url: versionConfig.url,
+        gitlab: !access ? "error" : liveVersion === undefined ? "error" : liveVersion === version ? "yes" : "no",
+      }));
+      resources.push({
+        name,
+        microserviceUrl: resourceConfig.microserviceUrl,
+        cdnBaseUrl: resourceConfig.cdnBaseUrl,
+        current: resourceConfig.current,
+        versions,
+      });
     }
 
     return {
@@ -235,14 +270,20 @@ export class RegistryService {
   }
 
   /**
-   * Lets a resource's GitLab project be set/changed from the UI instead of
-   * hand-editing resources.json. Verifies the project is actually
-   * reachable before saving, when a token is configured.
+   * Lets a resource's microservice URL (GitLab instance + project) and CDN
+   * base URL be set/changed together from the UI instead of hand-editing
+   * resources.json — entered and verified as a pair: the GitLab project
+   * must actually exist (when a token is configured) and the CDN base
+   * URL's host must actually respond, or nothing is saved.
    */
-  async setGitlabProject(resourceName: string, gitlabProject: string): Promise<MutationResult> {
-    const trimmed = gitlabProject.trim();
-    if (!trimmed) {
-      return { success: false, message: "GitLab project is required" };
+  async setResourceLocation(resourceName: string, microserviceUrl: string, cdnBaseUrl: string): Promise<MutationResult> {
+    const trimmedUrl = microserviceUrl.trim();
+    const trimmedCdn = cdnBaseUrl.trim();
+    if (!trimmedUrl) {
+      return { success: false, message: "Microservice URL is required" };
+    }
+    if (!trimmedCdn) {
+      return { success: false, message: "CDN base URL is required" };
     }
 
     const config = getRepositoryConfig();
@@ -251,63 +292,68 @@ export class RegistryService {
       return { success: false, message: `Unknown resource "${resourceName}"` };
     }
 
-    const connection = await this.getGitLabConnection();
-    if (connection) {
-      const result = await testConnection(connection, trimmed);
+    let projectPath: string;
+    try {
+      projectPath = parseMicroserviceUrl(trimmedUrl).projectPath;
+    } catch (err) {
+      return { success: false, message: (err as Error).message };
+    }
+
+    const access = await this.resolveGitLabAccess(trimmedUrl);
+    if (access) {
+      const result = await testConnection(access.connection, projectPath);
       if (!result.ok) {
-        return { success: false, message: `Could not reach GitLab project "${trimmed}": ${result.message}` };
+        return { success: false, message: `Could not reach "${trimmedUrl}": ${result.message}` };
       }
     }
 
-    const updated = updater.setGitlabProject(registry, resourceName, trimmed);
-    await writeRegistryFile(this.resolveJsonPath(config), updated);
-    this.registry = updated;
-    return { success: true };
-  }
-
-  async setActiveVersion(resourceName: string, version: string): Promise<MutationResult> {
-    const config = getRepositoryConfig();
-    const registry = await this.ensureRegistryLoaded(config);
-    const resource = registry.resources[resourceName];
-    if (!resource) {
-      return { success: false, message: `Unknown resource "${resourceName}"` };
-    }
-    if (!resource.versions[version]) {
-      return { success: false, message: `Version "${version}" is not registered for "${resourceName}"` };
+    const cdnCheck = await checkCdnReachable(trimmedCdn);
+    if (!cdnCheck.reachable) {
+      return { success: false, message: `Could not reach CDN base URL "${trimmedCdn}": ${cdnCheck.message}` };
     }
 
-    const connection = await this.getGitLabConnection();
-    const gitlabExists = connection ? await packageVersionExists(connection, resource.gitlabProject, version) : false;
-    if (!gitlabExists) {
-      return { success: false, message: "Version does not exist in GitLab Package Registry" };
-    }
-
-    const updated = updater.setActiveVersion(registry, resourceName, version);
-    await writeRegistryFile(this.resolveJsonPath(config), updated);
+    const updated = updater.setResourceLocation(registry, resourceName, trimmedUrl, trimmedCdn);
+    await writeRegistryFile(await this.resolveJsonPath(config), updated);
     this.registry = updated;
     return { success: true };
   }
 
   async getDeployHistory(): Promise<DeploySnapshot[]> {
-    return listDeploySnapshots(this.resolveDeployHistoryDir());
+    return listDeploySnapshots(await this.resolveDeployHistoryDir());
   }
 
-  async addResource(resourceName: string, gitlabProject: string, version: string): Promise<MutationResult> {
+  async addResource(resourceName: string, microserviceUrl: string, cdnBaseUrl: string): Promise<MutationResult> {
     const config = getRepositoryConfig();
     const registry = await this.ensureRegistryLoaded(config);
     if (Object.prototype.hasOwnProperty.call(registry.resources, resourceName)) {
       return { success: false, message: `Resource "${resourceName}" already exists` };
     }
 
-    const connection = await this.getGitLabConnection();
-    const gitlabExists = connection ? await packageVersionExists(connection, gitlabProject, version) : false;
-    if (!gitlabExists) {
-      return { success: false, message: "Version does not exist in GitLab Package Registry" };
+    const access = await this.resolveGitLabAccess(microserviceUrl);
+    const liveVersion = access ? await getRepositoryPackageVersion(access.connection, access.projectPath) : undefined;
+    if (!liveVersion) {
+      return {
+        success: false,
+        message: "Could not read a version from this resource's package.json on GitLab — check the Microservice URL and Token",
+      };
     }
 
-    const url = buildResourceUrl({ baseUrl: config.s3BaseUrl, resourceName, version, entryFile: config.entryFile });
-    const updated = updater.addResource(registry, resourceName, gitlabProject, version, url);
-    await writeRegistryFile(this.resolveJsonPath(config), updated);
+    const url = buildResourceUrl({ baseUrl: cdnBaseUrl, projectPath: access!.projectPath, version: liveVersion, entryFile: config.entryFile });
+    const updated = updater.addResource(registry, resourceName, microserviceUrl, cdnBaseUrl, liveVersion, url);
+    await writeRegistryFile(await this.resolveJsonPath(config), updated);
+    this.registry = updated;
+    return { success: true };
+  }
+
+  async removeResource(resourceName: string): Promise<MutationResult> {
+    const config = getRepositoryConfig();
+    const registry = await this.ensureRegistryLoaded(config);
+    if (!registry.resources[resourceName]) {
+      return { success: false, message: `Unknown resource "${resourceName}"` };
+    }
+
+    const updated = updater.removeResource(registry, resourceName);
+    await writeRegistryFile(await this.resolveJsonPath(config), updated);
     this.registry = updated;
     return { success: true };
   }
@@ -315,13 +361,17 @@ export class RegistryService {
   async validate(): Promise<ValidationReport> {
     const config = getRepositoryConfig();
     const registry = await this.ensureRegistryLoaded(config);
-    const connection = await this.getGitLabConnection();
 
     return validateRegistry(registry, {
-      s3BaseUrl: config.s3BaseUrl,
       entryFile: config.entryFile,
-      packageExists: async (gitlabProject, version) =>
-        connection && gitlabProject ? packageVersionExists(connection, gitlabProject, version) : false,
+      isCurrentVersion: async (microserviceUrl, version) => {
+        const access = await this.resolveGitLabAccess(microserviceUrl);
+        if (!access) {
+          return false;
+        }
+        const liveVersion = await getRepositoryPackageVersion(access.connection, access.projectPath);
+        return liveVersion === version;
+      },
     });
   }
 }

@@ -1,19 +1,21 @@
 {
   "resources": {
     "app1": {
-      "gitlabProject": "frontend/app1",
+      "microserviceUrl": "https://gitlab.example.com/frontend/app1",
+      "cdnBaseUrl": "https://cdn.example.com",
       "current": "1.4.0",
       "versions": {
-        "1.5.0": { "url": "https://cdn.example.com/app1/1.5.0/remoteEntry.js" },
-        "1.4.0": { "url": "https://cdn.example.com/app1/1.4.0/remoteEntry.js" },
-        "1.3.0": { "url": "https://cdn.example.com/app1/1.3.0/remoteEntry.js" }
+        "1.5.0": { "url": "https://cdn.example.com/frontend/app1/1.5.0/remoteEntry.js" },
+        "1.4.0": { "url": "https://cdn.example.com/frontend/app1/1.4.0/remoteEntry.js" },
+        "1.3.0": { "url": "https://cdn.example.com/frontend/app1/1.3.0/remoteEntry.js" }
       }
     },
     "app2": {
-      "gitlabProject": "frontend/app2",
+      "microserviceUrl": "https://gitlab.other-instance.example.com/frontend/app2",
+      "cdnBaseUrl": "https://static.otherhost.example.com",
       "current": "2.3.0",
       "versions": {
-        "2.3.0": { "url": "https://cdn.example.com/app2/2.3.0/remoteEntry.js" }
+        "2.3.0": { "url": "https://static.otherhost.example.com/frontend/app2/2.3.0/remoteEntry.js" }
       }
     }
   }

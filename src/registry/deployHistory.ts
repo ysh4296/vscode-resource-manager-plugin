@@ -14,9 +14,9 @@ export interface DeploySnapshot {
  * package.json or no string `version` field, rather than throwing: a repo
  * without one just doesn't get automatic snapshots.
  */
-export async function readRepositoryVersion(workspaceRoot: string): Promise<string | undefined> {
+export async function readRepositoryVersion(repoRoot: string): Promise<string | undefined> {
   try {
-    const raw = await fs.readFile(path.join(workspaceRoot, "package.json"), "utf8");
+    const raw = await fs.readFile(path.join(repoRoot, "package.json"), "utf8");
     const parsed = JSON.parse(raw) as { version?: unknown };
     return typeof parsed.version === "string" && parsed.version.length > 0 ? parsed.version : undefined;
   } catch {

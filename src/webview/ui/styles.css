@@ -133,7 +133,7 @@ button:disabled {
   font-weight: 600;
 }
 
-.resource-project {
+.resource-location {
   font-weight: normal;
   opacity: 0.6;
   font-size: 11px;
@@ -142,22 +142,33 @@ button:disabled {
   text-decoration: underline dotted;
 }
 
-.resource-project-edit {
+.location-edit {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px 10px;
 }
 
-.resource-project-edit input {
+.location-edit label {
+  margin: 0;
+  font-size: 11px;
+}
+
+.location-edit input {
   width: auto;
-  min-width: 160px;
+  min-width: 180px;
   font-size: 11px;
   font-family: var(--vscode-editor-font-family, monospace);
   margin: 0;
   padding: 2px 4px;
 }
 
-.resource-project-edit button {
+.location-edit-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.location-edit button {
   padding: 2px 8px;
   font-size: 11px;
 }
@@ -167,6 +178,23 @@ button:disabled {
   font-weight: normal;
   opacity: 0.8;
   font-size: 12px;
+}
+
+.remove-resource {
+  background: transparent;
+  border: 1px solid var(--vscode-errorForeground, #f14c4c);
+  color: var(--vscode-errorForeground, #f14c4c);
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.remove-resource.confirming {
+  background: var(--vscode-errorForeground, #f14c4c);
+  color: var(--vscode-editor-background, #1e1e1e);
+}
+
+.add-resource-form h3 {
+  margin-top: 0;
 }
 
 .resource-body {

@@ -9,9 +9,8 @@ import type { ValidationReport } from "../registry/validator";
  */
 
 export interface RepositoryConfigDTO {
-  gitlabUrl: string;
+  repositoryUrl: string;
   jsonPath: string;
-  s3BaseUrl: string;
   entryFile: string;
   hasToken: boolean;
 }
@@ -24,8 +23,10 @@ export interface ResourceVersionStatus {
 
 export interface ResourceViewModel {
   name: string;
-  /** GitLab project (path or ID) that owns this resource's own repo/Package Registry. */
-  gitlabProject: string;
+  /** Full URL of this resource's own GitLab project, e.g. "https://gitlab.example.com/frontend/app1". */
+  microserviceUrl: string;
+  /** CDN/S3 base URL this resource's files are served from. */
+  cdnBaseUrl: string;
   current: string;
   versions: ResourceVersionStatus[];
 }
@@ -63,9 +64,9 @@ export type WebviewRequest =
   | { type: "getState" }
   | { type: "saveConfig"; config: Omit<RepositoryConfigDTO, "hasToken"> }
   | { type: "saveToken"; token: string }
-  | { type: "setActiveVersion"; resourceName: string; version: string }
-  | { type: "setGitlabProject"; resourceName: string; gitlabProject: string }
-  | { type: "addResource"; resourceName: string; gitlabProject: string; version: string }
+  | { type: "setResourceLocation"; resourceName: string; microserviceUrl: string; cdnBaseUrl: string }
+  | { type: "addResource"; resourceName: string; microserviceUrl: string; cdnBaseUrl: string }
+  | { type: "removeResource"; resourceName: string }
   | { type: "validate" }
   | { type: "getDiff" }
   | { type: "commit"; message: string }
@@ -76,9 +77,9 @@ export type WebviewRequest =
 export type ExtensionResponse =
   | { type: "state"; state: AppState }
   | { type: "error"; requestType: WebviewRequest["type"]; message: string }
-  | { type: "setActiveVersionResult"; success: boolean; message?: string; state?: AppState }
-  | { type: "setGitlabProjectResult"; success: boolean; message?: string; state?: AppState }
+  | { type: "setResourceLocationResult"; success: boolean; message?: string; state?: AppState }
   | { type: "addResourceResult"; success: boolean; message?: string; state?: AppState }
+  | { type: "removeResourceResult"; success: boolean; message?: string; state?: AppState }
   | { type: "validationResult"; report: ValidationReport }
   | { type: "diffResult"; diff: string; summary: ResourceChangeSummary[]; defaultCommitMessage: string }
   | { type: "commitResult"; success: boolean; message?: string }

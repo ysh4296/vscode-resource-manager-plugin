@@ -1,3 +1,4 @@
+import { parseMicroserviceUrl } from "../gitlab/projectUrl";
 import { buildResourceUrl } from "../resource/buildResourceUrl";
 import { ResourceConfig, ResourceRegistry } from "./types";
 
@@ -19,9 +20,15 @@ export interface ValidationReport {
  * call without a network or GitLab token.
  */
 export interface ValidationContext {
-  s3BaseUrl: string;
   entryFile: string;
-  packageExists: (gitlabProject: string, version: string) => Promise<boolean>;
+  /**
+   * Whether `version` is currently the version published in this resource's
+   * own package.json on GitLab. GitLab only ever reports one "live" version
+   * per resource (there's no package registry history to check against), so
+   * this can only ever confirm the resource's `current` version — see
+   * validateRegistry below.
+   */
+  isCurrentVersion: (microserviceUrl: string, version: string) => Promise<boolean>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -43,12 +50,20 @@ export function validateRegistryStructure(data: unknown): ValidationCheck[] {
 export function validateResource(resourceName: string, config: ResourceConfig): ValidationCheck[] {
   const checks: ValidationCheck[] = [];
 
-  const hasGitlabProject = typeof config?.gitlabProject === "string" && config.gitlabProject.length > 0;
+  const hasMicroserviceUrl = typeof config?.microserviceUrl === "string" && config.microserviceUrl.length > 0;
   checks.push({
-    id: `${resourceName}:gitlab-project-field`,
-    label: `${resourceName} has "gitlabProject"`,
-    passed: hasGitlabProject,
-    message: hasGitlabProject ? undefined : 'Missing or empty "gitlabProject" field',
+    id: `${resourceName}:microservice-url-field`,
+    label: `${resourceName} has "microserviceUrl"`,
+    passed: hasMicroserviceUrl,
+    message: hasMicroserviceUrl ? undefined : 'Missing or empty "microserviceUrl" field',
+  });
+
+  const hasCdnBaseUrl = typeof config?.cdnBaseUrl === "string" && config.cdnBaseUrl.length > 0;
+  checks.push({
+    id: `${resourceName}:cdn-base-url-field`,
+    label: `${resourceName} has "cdnBaseUrl"`,
+    passed: hasCdnBaseUrl,
+    message: hasCdnBaseUrl ? undefined : 'Missing or empty "cdnBaseUrl" field',
   });
 
   const hasCurrent = typeof config?.current === "string" && config.current.length > 0;
@@ -82,9 +97,10 @@ export function validateResource(resourceName: string, config: ResourceConfig): 
 
 export function validateVersion(
   resourceName: string,
+  microserviceUrl: string,
+  cdnBaseUrl: string,
   version: string,
   url: string,
-  s3BaseUrl: string,
   entryFile: string
 ): ValidationCheck {
   const id = `${resourceName}@${version}:url-rule`;
@@ -92,7 +108,8 @@ export function validateVersion(
 
   let expected: string;
   try {
-    expected = buildResourceUrl({ baseUrl: s3BaseUrl, resourceName, version, entryFile });
+    const { projectPath } = parseMicroserviceUrl(microserviceUrl);
+    expected = buildResourceUrl({ baseUrl: cdnBaseUrl, projectPath, version, entryFile });
   } catch (err) {
     return { id, label, passed: false, message: (err as Error).message };
   }
@@ -119,18 +136,18 @@ export function validateNoDuplicateVersions(resourceName: string, config: Resour
   };
 }
 
-export async function validateGitLabPackage(
+export async function validateGitLabCurrentVersion(
   resourceName: string,
-  gitlabProject: string,
+  microserviceUrl: string,
   version: string,
-  packageExists: (gitlabProject: string, version: string) => Promise<boolean>
+  isCurrentVersion: (microserviceUrl: string, version: string) => Promise<boolean>
 ): Promise<ValidationCheck> {
-  const exists = await packageExists(gitlabProject, version);
+  const matches = await isCurrentVersion(microserviceUrl, version);
   return {
     id: `${resourceName}@${version}:gitlab`,
-    label: `${resourceName}@${version} GitLab Package`,
-    passed: exists,
-    message: exists ? undefined : "Version not found in GitLab Package Registry",
+    label: `${resourceName}@${version} matches GitLab`,
+    passed: matches,
+    message: matches ? undefined : "Does not match the version currently published in this resource's package.json on GitLab",
   };
 }
 
@@ -139,13 +156,15 @@ export async function validateGitLabPackage(
  *  1. JSON structure
  *  2. each resource's `current` is present in its `versions`
  *  3. each version's URL matches the buildResourceUrl rule
- *  4. every *registered* version still exists in GitLab Package Registry
+ *  4. the resource's `current` version still matches what GitLab reports
  *  5. no duplicate version keys
  *  6. required fields are present (folded into checks 1-2 above)
  *
- * GitLab Package Registry is the sole source of truth for "does this
- * version exist" — S3 is just where the artifact happens to be uploaded,
- * so it's not re-verified here.
+ * The resource's own package.json on GitLab is the sole source of truth
+ * for "what version is live" — it only ever reports one version, so older
+ * entries in `versions` are historical record (like deploy-history) and
+ * aren't re-verified against GitLab here, only `current` is. CDN is just
+ * where the artifact happens to be uploaded, so it's not re-verified either.
  */
 export async function validateRegistry(registry: ResourceRegistry, ctx: ValidationContext): Promise<ValidationReport> {
   const checks: ValidationCheck[] = [...validateRegistryStructure(registry)];
@@ -155,8 +174,13 @@ export async function validateRegistry(registry: ResourceRegistry, ctx: Validati
     checks.push(validateNoDuplicateVersions(resourceName, config));
 
     for (const [version, versionConfig] of Object.entries(config.versions ?? {})) {
-      checks.push(validateVersion(resourceName, version, versionConfig.url, ctx.s3BaseUrl, ctx.entryFile));
-      checks.push(await validateGitLabPackage(resourceName, config.gitlabProject, version, ctx.packageExists));
+      checks.push(
+        validateVersion(resourceName, config.microserviceUrl, config.cdnBaseUrl, version, versionConfig.url, ctx.entryFile)
+      );
+    }
+
+    if (config.current) {
+      checks.push(await validateGitLabCurrentVersion(resourceName, config.microserviceUrl, config.current, ctx.isCurrentVersion));
     }
   }
 

@@ -2,14 +2,16 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "build",
+      "type": "shell",
+      "label": "yarn: build",
+      "command": "yarn build",
       "group": "build",
       "problemMatcher": []
     },
     {
-      "type": "npm",
-      "script": "watch",
+      "type": "shell",
+      "label": "yarn: watch",
+      "command": "yarn watch",
       "isBackground": true,
       "problemMatcher": []
     }

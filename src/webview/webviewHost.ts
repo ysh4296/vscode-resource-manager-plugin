@@ -39,21 +39,20 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
  * WebviewPanel or a sidebar WebviewView, both expose the same `vscode.Webview`
  * surface — to a fresh RegistryService/DeploymentService pair. Shared so the
  * sidebar view and the "open in editor tab" panel don't duplicate this logic.
+ *
+ * Not tied to any VS Code workspace folder: RegistryService manages its own
+ * local clone of the configured repository under the extension's global
+ * storage directory, so this works whether or not a folder is open.
  */
-export function wireWebview(
-  webview: vscode.Webview,
-  extensionUri: vscode.Uri,
-  context: vscode.ExtensionContext,
-  workspaceRoot: string
-): vscode.Disposable {
+export function wireWebview(webview: vscode.Webview, extensionUri: vscode.Uri, context: vscode.ExtensionContext): vscode.Disposable {
   webview.options = {
     enableScripts: true,
     localResourceRoots: [vscode.Uri.joinPath(extensionUri, "dist")],
   };
   webview.html = getWebviewHtml(webview, extensionUri);
 
-  const registryService = new RegistryService(context, workspaceRoot);
-  const deploymentService = new DeploymentService(workspaceRoot, registryService);
+  const registryService = new RegistryService(context, context.globalStorageUri.fsPath);
+  const deploymentService = new DeploymentService(registryService);
   const post = (response: ExtensionResponse): void => {
     void webview.postMessage(response);
   };
